@@ -1,0 +1,10 @@
+/.idea
+/local-parental-control.iml
+/bin/
+/dist/
+*.test
+coverage.out
+
+# Local task context; never publish these files.
+/task.md
+/chatgpt_conversation.md

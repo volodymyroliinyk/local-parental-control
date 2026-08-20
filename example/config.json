@@ -1,0 +1,28 @@
+{
+  "timezone": "America/Toronto",
+  "poll_interval_seconds": 2,
+  "termination_grace_seconds": 3,
+  "users": {
+    "child": {
+      "applications": [
+        {
+          "id": "firefox",
+          "name": "Firefox",
+          "executables": [
+            "/usr/lib/firefox/firefox"
+          ],
+          "daily_minutes": 120
+        },
+        {
+          "id": "vlc",
+          "name": "VLC media player",
+          "executables": [
+            "/usr/bin/vlc"
+          ],
+          "daily_minutes": 60
+        }
+      ]
+    }
+  }
+}
+
