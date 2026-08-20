@@ -3,6 +3,7 @@ package daemon
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -33,5 +34,50 @@ func TestStateRoundTripAndDailyReset(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0600 {
 		t.Fatalf("state mode = %o", info.Mode().Perm())
+	}
+}
+
+func TestLoadStateRejectsUntrustedOrInvalidData(t *testing.T) {
+	tests := map[string]string{
+		"unknown field": `{"date":"2026-08-20","users":{},"extra":true}`,
+		"trailing data": `{"date":"2026-08-20","users":{}} {}`,
+		"invalid date":  `{"date":"not-a-date","users":{}}`,
+		"negative use":  `{"date":"2026-08-20","users":{"child":{"app":-1}}}`,
+		"excessive use": `{"date":"2026-08-20","users":{"child":{"app":86401}}}`,
+	}
+	for name, contents := range tests {
+		t.Run(name, func(t *testing.T) {
+			directory := filepath.Join(t.TempDir(), "state")
+			if err := os.Mkdir(directory, 0700); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(directory, "usage.json")
+			if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := loadState(path, "2026-08-20"); err == nil {
+				t.Fatal("expected invalid state to be rejected")
+			}
+		})
+	}
+}
+
+func TestStateRejectsUnsafePermissions(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(directory, 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "usage.json")
+	if err := saveState(path, newState("2026-08-20")); err == nil || !strings.Contains(err.Error(), "mode 0700") {
+		t.Fatalf("unexpected directory validation error: %v", err)
+	}
+	if err := os.Chmod(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"date":"2026-08-20","users":{}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadState(path, "2026-08-20"); err == nil || !strings.Contains(err.Error(), "mode 0600") {
+		t.Fatalf("unexpected file validation error: %v", err)
 	}
 }

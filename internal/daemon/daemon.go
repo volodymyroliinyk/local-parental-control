@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -35,11 +36,13 @@ type Service struct {
 	pendingKill                       map[int]pendingTermination
 	lastTick                          time.Time
 	now                               func() time.Time
+	loadConfig                        func(string) (*config.Config, error)
+	authorizePeer                     func(net.Conn) error
 }
 
 type pendingTermination struct {
-	deadline   time.Time
-	executable string
+	deadline time.Time
+	process  proc.Info
 }
 
 func New(cfg *config.Config, configPath, statePath, socketPath string, logger *slog.Logger) (*Service, error) {
@@ -48,7 +51,7 @@ func New(cfg *config.Config, configPath, statePath, socketPath string, logger *s
 	if err != nil {
 		return nil, err
 	}
-	s := &Service{cfg: cfg, configPath: configPath, statePath: statePath, socketPath: socketPath, state: state, scanner: proc.NewScanner(), logger: logger, pendingKill: make(map[int]pendingTermination), now: time.Now, lastTick: now}
+	s := &Service{cfg: cfg, configPath: configPath, statePath: statePath, socketPath: socketPath, state: state, scanner: proc.NewScanner(), logger: logger, pendingKill: make(map[int]pendingTermination), now: time.Now, loadConfig: config.LoadSecure, authorizePeer: authorizeRootPeer, lastTick: now}
 	if err := s.resolveUsers(); err != nil {
 		return nil, err
 	}
@@ -123,10 +126,17 @@ func (s *Service) tick() error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		for _, process := range processes {
+			if err := process.Close(); err != nil {
+				s.logger.Warn("close pidfd failed", "pid", process.PID, "error", err)
+			}
+		}
+	}()
 	active := make(map[string]map[string]bool)
-	current := make(map[int]string, len(processes))
+	current := make(map[int]proc.Info, len(processes))
 	for _, p := range processes {
-		current[p.PID] = p.Executable
+		current[p.PID] = p
 		username, monitored := s.uidUsers[p.UID]
 		if !monitored {
 			continue
@@ -165,9 +175,9 @@ func (s *Service) tick() error {
 	for pid, pending := range s.pendingKill {
 		if !now.Before(pending.deadline) {
 			// A PID can be reused after the original process exits. Kill only if the
-			// same executable is still present at the deadline.
-			if executable, exists := current[pid]; exists && executable == pending.executable {
-				if err := s.scanner.Signal(pid, syscall.SIGKILL); err != nil {
+			// full process identity still matches at the deadline.
+			if process, exists := current[pid]; exists && process.SameIdentity(pending.process) {
+				if err := s.scanner.Signal(process, syscall.SIGKILL); err != nil {
 					s.logger.Warn("SIGKILL failed", "pid", pid, "error", err)
 				}
 			}
@@ -193,13 +203,13 @@ func (s *Service) terminate(p proc.Info, now time.Time) {
 	if _, pending := s.pendingKill[p.PID]; pending {
 		return
 	}
-	if err := s.scanner.Signal(p.PID, syscall.SIGTERM); err != nil {
+	if err := s.scanner.Signal(p, syscall.SIGTERM); err != nil {
 		s.logger.Warn("SIGTERM failed", "pid", p.PID, "error", err)
 		return
 	}
 	s.pendingKill[p.PID] = pendingTermination{
-		deadline:   now.Add(time.Duration(s.cfg.TerminationGraceSeconds) * time.Second),
-		executable: p.Executable,
+		deadline: now.Add(time.Duration(s.cfg.TerminationGraceSeconds) * time.Second),
+		process:  p,
 	}
 	s.logger.Warn("application limit enforced", "pid", p.PID, "executable", p.Executable)
 }
@@ -218,7 +228,10 @@ func (s *Service) add(user, app string, seconds int64) {
 }
 
 func (s *Service) listen() (net.Listener, error) {
-	if err := os.MkdirAll(filepath.Dir(s.socketPath), 0750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.socketPath), 0700); err != nil {
+		return nil, err
+	}
+	if err := validatePrivateDirectory(filepath.Dir(s.socketPath)); err != nil {
 		return nil, err
 	}
 	if err := os.Remove(s.socketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -237,6 +250,7 @@ func (s *Service) listen() (net.Listener, error) {
 
 func (s *Service) serve(ctx context.Context, listener net.Listener) {
 	go func() { <-ctx.Done(); listener.Close() }()
+	clients := make(chan struct{}, 16)
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -245,15 +259,28 @@ func (s *Service) serve(ctx context.Context, listener net.Listener) {
 			}
 			return
 		}
-		go s.handle(conn)
+		select {
+		case clients <- struct{}{}:
+			go func() {
+				defer func() { <-clients }()
+				s.handle(conn)
+			}()
+		default:
+			conn.Close()
+			s.logger.Warn("administrative socket connection limit reached")
+		}
 	}
 }
 
 func (s *Service) handle(conn net.Conn) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	if err := s.authorizePeer(conn); err != nil {
+		s.logger.Warn("rejected administrative socket client", "error", err)
+		return
+	}
 	var req api.Request
-	dec := json.NewDecoder(conn)
+	dec := json.NewDecoder(io.LimitReader(conn, 64<<10))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
 		json.NewEncoder(conn).Encode(api.Response{Error: "invalid request: " + err.Error()})
@@ -263,6 +290,31 @@ func (s *Service) handle(conn net.Conn) {
 	_ = json.NewEncoder(conn).Encode(response)
 }
 
+func authorizeRootPeer(conn net.Conn) error {
+	unixConn, ok := conn.(*net.UnixConn)
+	if !ok {
+		return errors.New("administrative connection is not a Unix socket")
+	}
+	raw, err := unixConn.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var credentials *syscall.Ucred
+	var socketErr error
+	if err := raw.Control(func(fd uintptr) {
+		credentials, socketErr = syscall.GetsockoptUcred(int(fd), syscall.SOL_SOCKET, syscall.SO_PEERCRED)
+	}); err != nil {
+		return err
+	}
+	if socketErr != nil {
+		return socketErr
+	}
+	if credentials == nil || credentials.Uid != 0 {
+		return errors.New("administrative client must run as root")
+	}
+	return nil
+}
+
 func (s *Service) execute(req api.Request) api.Response {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -270,7 +322,7 @@ func (s *Service) execute(req api.Request) api.Response {
 	case "status":
 		return api.Response{OK: true, Status: s.status()}
 	case "reload":
-		cfg, err := config.Load(s.configPath)
+		cfg, err := s.loadConfig(s.configPath)
 		if err != nil {
 			return api.Response{Error: err.Error()}
 		}

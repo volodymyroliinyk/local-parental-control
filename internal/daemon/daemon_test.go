@@ -1,13 +1,20 @@
 package daemon
 
 import (
+	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
+	"net"
+	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/volodymyroliinyk/local-parental-control/internal/api"
 	"github.com/volodymyroliinyk/local-parental-control/internal/config"
 	proc "github.com/volodymyroliinyk/local-parental-control/internal/process"
 )
@@ -15,10 +22,17 @@ import (
 type fakeScanner struct {
 	processes []proc.Info
 	signals   []syscall.Signal
+	pids      []int
+	scanErr   error
+	signalErr error
 }
 
-func (f *fakeScanner) Scan() ([]proc.Info, error) { return f.processes, nil }
-func (f *fakeScanner) Signal(_ int, signal syscall.Signal) error {
+func (f *fakeScanner) Scan() ([]proc.Info, error) { return f.processes, f.scanErr }
+func (f *fakeScanner) Signal(process proc.Info, signal syscall.Signal) error {
+	if f.signalErr != nil {
+		return f.signalErr
+	}
+	f.pids = append(f.pids, process.PID)
 	f.signals = append(f.signals, signal)
 	return nil
 }
@@ -28,7 +42,7 @@ func TestTickCountsApplicationOnceAndEnforcesLimit(t *testing.T) {
 	now := start
 	cfg := &config.Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]config.UserConfig{"child": {Applications: []config.Application{{ID: "game", Name: "Game", Executables: []string{"/opt/game"}, DailyMinutes: 1}}}}}
 	fake := &fakeScanner{processes: []proc.Info{{PID: 1, UID: 1000, Executable: "/opt/game"}, {PID: 2, UID: 1000, Executable: "/opt/game"}}}
-	s := &Service{cfg: cfg, statePath: filepath.Join(t.TempDir(), "state.json"), state: newState("2026-08-19"), scanner: fake, logger: slog.New(slog.NewTextHandler(io.Discard, nil)), uidUsers: map[uint32]string{1000: "child"}, pendingKill: map[int]pendingTermination{}, lastTick: start, now: func() time.Time { return now }}
+	s := &Service{cfg: cfg, statePath: filepath.Join(t.TempDir(), "state", "state.json"), state: newState("2026-08-19"), scanner: fake, logger: slog.New(slog.NewTextHandler(io.Discard, nil)), uidUsers: map[uint32]string{1000: "child"}, pendingKill: map[int]pendingTermination{}, lastTick: start, now: func() time.Time { return now }}
 	now = now.Add(2 * time.Second)
 	if err := s.tick(); err != nil {
 		t.Fatal(err)
@@ -46,6 +60,229 @@ func TestTickCountsApplicationOnceAndEnforcesLimit(t *testing.T) {
 	}
 }
 
+func TestTickResetsDateAndClampsElapsedTime(t *testing.T) {
+	start := time.Date(2026, 8, 19, 23, 59, 59, 0, time.UTC)
+	now := start.Add(10 * time.Second)
+	fake := &fakeScanner{processes: []proc.Info{{PID: 10, UID: 1000, Executable: "/opt/app"}}}
+	s := testService(t, start, &config.Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]config.UserConfig{"child": {Applications: []config.Application{{ID: "app", Name: "App", Executables: []string{"/opt/app"}, DailyMinutes: 10}}}}}, fake)
+	s.state.Users["child"] = map[string]int64{"app": 100}
+	s.now = func() time.Time { return now }
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if s.state.Date != "2026-08-20" || s.used("child", "app") != 4 {
+		t.Fatalf("state after date reset: %+v", s.state)
+	}
+
+	now = now.Add(-time.Second)
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if s.used("child", "app") != 4 {
+		t.Fatalf("negative elapsed time changed usage: %d", s.used("child", "app"))
+	}
+}
+
+func TestTickReturnsScannerError(t *testing.T) {
+	start := time.Now()
+	want := errors.New("proc unavailable")
+	s := testService(t, start, basicConfig(), &fakeScanner{scanErr: want})
+	if err := s.tick(); !errors.Is(err, want) {
+		t.Fatalf("tick error = %v, want %v", err, want)
+	}
+}
+
+func TestDelayedKillRequiresSamePIDAndExecutable(t *testing.T) {
+	start := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	now := start.Add(2 * time.Second)
+	fake := &fakeScanner{processes: []proc.Info{{PID: 10, UID: 1000, Executable: "/opt/app"}}}
+	s := testService(t, start, basicConfig(), fake)
+	s.state.Users["child"] = map[string]int64{"app": 60}
+	s.now = func() time.Time { return now }
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.signals) != 1 || fake.signals[0] != syscall.SIGTERM {
+		t.Fatalf("signals after enforcement: %v", fake.signals)
+	}
+
+	// Simulate PID reuse by a different executable before the kill deadline.
+	fake.processes = []proc.Info{{PID: 10, UID: 0, Executable: "/usr/sbin/system-service"}}
+	now = now.Add(4 * time.Second)
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.signals) != 1 {
+		t.Fatalf("reused PID was signaled: %v", fake.signals)
+	}
+}
+
+func TestDelayedKillSignalsOriginalExecutable(t *testing.T) {
+	start := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	now := start.Add(2 * time.Second)
+	fake := &fakeScanner{processes: []proc.Info{{PID: 10, UID: 1000, Executable: "/opt/app"}}}
+	s := testService(t, start, basicConfig(), fake)
+	s.state.Users["child"] = map[string]int64{"app": 60}
+	s.now = func() time.Time { return now }
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(4 * time.Second)
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.signals) != 2 || fake.signals[0] != syscall.SIGTERM || fake.signals[1] != syscall.SIGKILL {
+		t.Fatalf("signals = %v", fake.signals)
+	}
+}
+
+func TestTerminateDoesNotScheduleKillAfterSignalError(t *testing.T) {
+	start := time.Now()
+	fake := &fakeScanner{signalErr: syscall.EPERM}
+	s := testService(t, start, basicConfig(), fake)
+	s.terminate(proc.Info{PID: 10, Executable: "/opt/app"}, start)
+	if len(s.pendingKill) != 0 {
+		t.Fatalf("pending kill scheduled after failed signal: %+v", s.pendingKill)
+	}
+}
+
+func TestExecuteStatusAndReset(t *testing.T) {
+	start := time.Now()
+	cfg := &config.Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]config.UserConfig{
+		"z-user": {Applications: []config.Application{{ID: "z", Name: "Z", Executables: []string{"/z"}, DailyMinutes: 2}, {ID: "a", Name: "A", Executables: []string{"/a"}, DailyMinutes: 1}}},
+		"a-user": {Applications: []config.Application{{ID: "x", Name: "X", Executables: []string{"/x"}, DailyMinutes: 1}}},
+	}}
+	s := testService(t, start, cfg, &fakeScanner{})
+	s.state.Users["z-user"] = map[string]int64{"a": 60}
+	status := s.execute(api.Request{Command: "status"})
+	if !status.OK || status.Status == nil || status.Status.Users[0].Name != "a-user" {
+		t.Fatalf("unexpected status: %+v", status)
+	}
+	apps := status.Status.Users[1].Applications
+	if len(apps) != 2 || apps[0].ID != "a" || !apps[0].Blocked {
+		t.Fatalf("applications not sorted or blocked: %+v", apps)
+	}
+
+	if response := s.execute(api.Request{Command: "reset", User: "missing"}); response.OK || response.Error == "" {
+		t.Fatalf("unexpected unknown-user response: %+v", response)
+	}
+	if response := s.execute(api.Request{Command: "reset", User: "z-user", Application: "missing"}); response.OK || response.Error == "" {
+		t.Fatalf("unexpected unknown-app response: %+v", response)
+	}
+	s.pendingKill[99] = pendingTermination{deadline: start, process: proc.Info{PID: 99, UID: 1000, Executable: "/a"}}
+	if response := s.execute(api.Request{Command: "reset", User: "z-user", Application: "a"}); !response.OK {
+		t.Fatalf("reset failed: %+v", response)
+	}
+	if s.used("z-user", "a") != 0 || len(s.pendingKill) != 0 {
+		t.Fatalf("reset did not clear state: %+v", s.state)
+	}
+	if response := s.execute(api.Request{Command: "unknown"}); response.OK || response.Error == "" {
+		t.Fatalf("unexpected command response: %+v", response)
+	}
+}
+
+func TestExecuteReloadIsTransactional(t *testing.T) {
+	current, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid, err := strconv.ParseUint(current.Uid, 10, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	path := filepath.Join(t.TempDir(), "config.json")
+	s := testService(t, start, basicConfig(), &fakeScanner{})
+	s.configPath = path
+	s.uidUsers = map[uint32]string{uint32(uid): "child"}
+	if err := os.WriteFile(path, []byte(`{"invalid":true}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if response := s.execute(api.Request{Command: "reload"}); response.OK || s.cfg.Users["child"].Applications[0].ID != "app" {
+		t.Fatalf("invalid reload replaced config: %+v", response)
+	}
+
+	valid := map[string]any{"timezone": "UTC", "users": map[string]any{current.Username: map[string]any{"applications": []any{map[string]any{"id": "new", "name": "New", "executables": []string{"/opt/new"}, "daily_minutes": 5}}}}}
+	data, err := json.Marshal(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	s.pendingKill[1] = pendingTermination{deadline: start, process: proc.Info{PID: 1, UID: 1000, Executable: "/opt/app"}}
+	if response := s.execute(api.Request{Command: "reload"}); !response.OK {
+		t.Fatalf("valid reload failed: %+v", response)
+	}
+	if _, ok := s.cfg.Users[current.Username]; !ok || len(s.pendingKill) != 0 {
+		t.Fatalf("reload did not replace config safely: %+v", s.cfg)
+	}
+}
+
+func TestAdministrativeSocketPermissionsAndRequest(t *testing.T) {
+	start := time.Now()
+	s := testService(t, start, basicConfig(), &fakeScanner{})
+	s.socketPath = filepath.Join(t.TempDir(), "run", "control.sock")
+	listener, err := s.listen()
+	if err != nil {
+		if errors.Is(err, syscall.EPERM) {
+			t.Skipf("Unix sockets are not permitted in this test sandbox: %v", err)
+		}
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	info, err := os.Stat(s.socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("socket mode = %o", info.Mode().Perm())
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		conn, acceptErr := listener.Accept()
+		if acceptErr == nil {
+			s.handle(conn)
+		}
+	}()
+	conn, err := net.Dial("unix", s.socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.NewEncoder(conn).Encode(api.Request{Command: "status"}); err != nil {
+		t.Fatal(err)
+	}
+	var response api.Response
+	if err := json.NewDecoder(conn).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
+	<-done
+	if !response.OK || response.Status == nil {
+		t.Fatalf("unexpected socket response: %+v", response)
+	}
+}
+
+func TestHandleRejectsUnknownRequestField(t *testing.T) {
+	server, client := net.Pipe()
+	s := testService(t, time.Now(), basicConfig(), &fakeScanner{})
+	done := make(chan struct{})
+	go func() { s.handle(server); close(done) }()
+	if _, err := client.Write([]byte("{\"command\":\"status\",\"extra\":true}\n")); err != nil {
+		t.Fatal(err)
+	}
+	var response api.Response
+	if err := json.NewDecoder(client).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	client.Close()
+	<-done
+	if response.OK || response.Error == "" {
+		t.Fatalf("unexpected response: %+v", response)
+	}
+}
+
 func TestFindApplicationUsesExactCleanPath(t *testing.T) {
 	uc := config.UserConfig{Applications: []config.Application{{ID: "x", Executables: []string{"/usr/bin/x"}}}}
 	if _, ok := findApplication(uc, "/usr/bin/../bin/x"); !ok {
@@ -53,5 +290,26 @@ func TestFindApplicationUsesExactCleanPath(t *testing.T) {
 	}
 	if _, ok := findApplication(uc, "/tmp/x"); ok {
 		t.Fatal("unexpected match")
+	}
+}
+
+func basicConfig() *config.Config {
+	return &config.Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]config.UserConfig{"child": {Applications: []config.Application{{ID: "app", Name: "App", Executables: []string{"/opt/app"}, DailyMinutes: 1}}}}}
+}
+
+func testService(t *testing.T, start time.Time, cfg *config.Config, scanner proc.Scanner) *Service {
+	t.Helper()
+	return &Service{
+		cfg:           cfg,
+		statePath:     filepath.Join(t.TempDir(), "state", "usage.json"),
+		state:         newState(start.In(cfg.Location()).Format("2006-01-02")),
+		scanner:       scanner,
+		logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		uidUsers:      map[uint32]string{1000: "child"},
+		pendingKill:   map[int]pendingTermination{},
+		lastTick:      start,
+		now:           func() time.Time { return start },
+		loadConfig:    config.Load,
+		authorizePeer: func(net.Conn) error { return nil },
 	}
 }

@@ -12,21 +12,36 @@ if [[ ! -f /etc/local-parental-control/config.json ]]; then
 fi
 
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-build_dir=$(mktemp -d)
-trap 'rm -rf -- "$build_dir"' EXIT
+build_dir="${project_dir}/bin"
 
+if ! command -v apparmor_parser >/dev/null 2>&1; then
+  echo "AppArmor is required. Install the apparmor package first." >&2
+  exit 1
+fi
 # Validate before replacing a running daemon. The update never overwrites config or state.
 if command -v lpctl >/dev/null 2>&1; then
   lpctl validate
 fi
-OUTPUT_DIR="${build_dir}" LPC_VERSION="${LPC_VERSION:-${VERSION:-development}}" "${project_dir}/scripts/build.sh"
+if [[ -z ${SUDO_UID:-} || ${SUDO_UID} -eq 0 ]]; then
+  echo "Run this script through sudo from the administrator account." >&2
+  exit 1
+fi
+for binary in local-parental-control lpctl; do
+  path="${build_dir}/${binary}"
+  if [[ ! -f ${path} || -L ${path} || $(stat -c %u -- "${path}") -ne ${SUDO_UID} || -n $(find "${path}" -perm /022 -print -quit) ]]; then
+    echo "Unsafe or missing ${path}. Run ./scripts/build.sh without sudo first." >&2
+    exit 1
+  fi
+done
 
 install -D -o root -g root -m 0755 "${build_dir}/local-parental-control" /usr/local/sbin/local-parental-control
 install -D -o root -g root -m 0755 "${build_dir}/lpctl" /usr/local/sbin/lpctl
 install -D -o root -g root -m 0644 "${project_dir}/packaging/local-parental-control.service" /etc/systemd/system/local-parental-control.service
+install -D -o root -g root -m 0644 "${project_dir}/packaging/apparmor/local-parental-control" /etc/apparmor.d/local-parental-control
 install -D -o root -g root -m 0644 "${project_dir}/README.md" /usr/share/doc/local-parental-control/README.md
 chown root:root /etc/local-parental-control/config.json
 chmod 0600 /etc/local-parental-control/config.json
+apparmor_parser -r /etc/apparmor.d/local-parental-control
 
 systemctl daemon-reload
 /usr/local/sbin/lpctl validate

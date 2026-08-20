@@ -12,6 +12,9 @@ User=root
 Group=root
 UMask=0077
 NoNewPrivileges=true
+CapabilityBoundingSet=CAP_KILL CAP_SYS_PTRACE
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
 PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=strict
@@ -26,6 +29,11 @@ RestrictRealtime=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+RestrictNamespaces=true
+ProtectHostname=true
+TasksMax=64
 ReadWritePaths=/var/lib/local-parental-control /run/local-parental-control
 RuntimeDirectory=local-parental-control
 RuntimeDirectoryMode=0700
@@ -34,4 +42,3 @@ StateDirectoryMode=0700
 
 [Install]
 WantedBy=multi-user.target
-

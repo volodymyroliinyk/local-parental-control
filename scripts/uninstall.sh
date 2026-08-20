@@ -7,9 +7,12 @@ if [[ ${EUID} -ne 0 ]]; then
 fi
 
 systemctl disable --now local-parental-control.service 2>/dev/null || true
+if command -v apparmor_parser >/dev/null 2>&1 && [[ -f /etc/apparmor.d/local-parental-control ]]; then
+  apparmor_parser -R /etc/apparmor.d/local-parental-control 2>/dev/null || true
+fi
 rm -f /etc/systemd/system/local-parental-control.service
+rm -f /etc/apparmor.d/local-parental-control
 rm -f /usr/local/sbin/local-parental-control /usr/local/sbin/lpctl
 systemctl daemon-reload
 
 echo "Service and binaries removed. Configuration and usage data were preserved."
-

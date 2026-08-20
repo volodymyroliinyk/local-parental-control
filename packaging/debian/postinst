@@ -5,11 +5,15 @@ case "$1" in
   configure)
     chown root:root /etc/local-parental-control/config.json
     chmod 0600 /etc/local-parental-control/config.json
-    systemctl daemon-reload >/dev/null 2>&1 || true
+    if command -v apparmor_parser >/dev/null 2>&1; then
+      apparmor_parser -r /etc/apparmor.d/local-parental-control
+    fi
+    systemctl daemon-reload >/dev/null 2>&1
     if /usr/sbin/lpctl validate >/dev/null 2>&1; then
-      systemctl enable local-parental-control.service >/dev/null 2>&1 || true
-      systemctl restart local-parental-control.service >/dev/null 2>&1 || true
-      echo "Local Parental Control configuration is valid; service enabled."
+      systemctl enable local-parental-control.service >/dev/null 2>&1
+      systemctl restart local-parental-control.service >/dev/null 2>&1
+      systemctl is-active --quiet local-parental-control.service
+      echo "Local Parental Control configuration is valid; service enabled and running."
     else
       systemctl disable local-parental-control.service >/dev/null 2>&1 || true
       echo "Local Parental Control installed but not started."
@@ -21,4 +25,3 @@ case "$1" in
 esac
 
 exit 0
-

@@ -19,7 +19,8 @@ These instructions apply to the entire repository.
 - Configuration: `/etc/local-parental-control/config.json`.
 - State: `/var/lib/local-parental-control/usage.json`.
 - Admin socket: `/run/local-parental-control/control.sock`.
-- `task.md` is the current product request. `chatgpt_conversation.md` is historical background; do not reread it unless a requirement is unclear.
+- Local task transcripts and AI conversation exports are private working files.
+  They must remain ignored and must never be committed or used as project documentation.
 
 ## Implementation rules
 
@@ -77,6 +78,7 @@ dpkg-deb --contents dist/local-parental-control_0.1.0_amd64.deb
 - Build Go binaries with `CGO_ENABLED=0` so release artifacts remain statically linked.
 - `bin/` and `dist/` are generated outputs. Do not commit binaries or `.deb` files; publish them as release artifacts.
 - Do not install the service, alter `/etc`, `/usr`, or systemd state unless the user explicitly asks for installation or system changes.
+- Do not run `scripts/release.sh` unless the user explicitly asks to publish a release. Manual application and installation tests must be complete first.
 
 ## Change completion
 

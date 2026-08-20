@@ -14,14 +14,30 @@ type Info struct {
 	PID        int
 	UID        uint32
 	Executable string
+	StartTime  uint64
+	pidfd      int
+}
+
+func (p Info) SameIdentity(other Info) bool {
+	return p.PID == other.PID && p.UID == other.UID && p.StartTime == other.StartTime && p.Executable == other.Executable
+}
+
+func (p Info) Close() error {
+	if p.pidfd <= 0 {
+		return nil
+	}
+	return syscall.Close(p.pidfd - 1)
 }
 
 type Scanner interface {
 	Scan() ([]Info, error)
-	Signal(pid int, signal syscall.Signal) error
+	Signal(process Info, signal syscall.Signal) error
 }
 
-type ProcScanner struct{ Root string }
+type ProcScanner struct {
+	Root    string
+	openPID func(int) (int, error)
+}
 
 func NewScanner() *ProcScanner { return &ProcScanner{Root: "/proc"} }
 
@@ -41,14 +57,53 @@ func (s *ProcScanner) Scan() ([]Info, error) {
 		if err != nil {
 			continue
 		}
-		exe, err := os.Readlink(filepath.Join(base, "exe"))
+		startTime, err := readStartTime(filepath.Join(base, "stat"))
 		if err != nil {
 			continue
 		}
+		pidfd, err := s.pidfdOpen(pid)
+		if errors.Is(err, syscall.ESRCH) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("open pidfd for %d: %w", pid, err)
+		}
+		startTimeAfterOpen, err := readStartTime(filepath.Join(base, "stat"))
+		if err != nil || startTimeAfterOpen != startTime {
+			_ = syscall.Close(pidfd)
+			continue
+		}
+		exe, err := os.Readlink(filepath.Join(base, "exe"))
+		if err != nil {
+			_ = syscall.Close(pidfd)
+			continue
+		}
 		exe = strings.TrimSuffix(exe, " (deleted)")
-		result = append(result, Info{PID: pid, UID: uid, Executable: filepath.Clean(exe)})
+		result = append(result, Info{PID: pid, UID: uid, Executable: filepath.Clean(exe), StartTime: startTime, pidfd: pidfd + 1})
 	}
 	return result, nil
+}
+
+func readStartTime(path string) (uint64, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	contents := string(data)
+	closingParen := strings.LastIndexByte(contents, ')')
+	if closingParen < 0 || closingParen+2 >= len(contents) {
+		return 0, fmt.Errorf("malformed process stat in %s", path)
+	}
+	fields := strings.Fields(contents[closingParen+1:])
+	// fields[0] is field 3 (state); starttime is field 22.
+	if len(fields) <= 19 {
+		return 0, fmt.Errorf("starttime field not found in %s", path)
+	}
+	startTime, err := strconv.ParseUint(fields[19], 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse starttime in %s: %w", path, err)
+	}
+	return startTime, nil
 }
 
 func readUID(path string) (uint32, error) {
@@ -70,8 +125,18 @@ func readUID(path string) (uint32, error) {
 	return 0, fmt.Errorf("Uid field not found in %s", path)
 }
 
-func (s *ProcScanner) Signal(pid int, signal syscall.Signal) error {
-	err := syscall.Kill(pid, signal)
+func (s *ProcScanner) pidfdOpen(pid int) (int, error) {
+	if s.openPID != nil {
+		return s.openPID(pid)
+	}
+	return openPIDFD(pid)
+}
+
+func (s *ProcScanner) Signal(process Info, signal syscall.Signal) error {
+	if process.pidfd <= 0 {
+		return errors.New("process has no pidfd")
+	}
+	err := signalPIDFD(process.pidfd-1, signal)
 	if errors.Is(err, syscall.ESRCH) {
 		return nil
 	}

@@ -28,6 +28,7 @@ OUTPUT_DIR="${build_dir}" LPC_VERSION="${package_version}" "${project_dir}/scrip
 install -D -m 0755 "${build_dir}/local-parental-control" "${staging_dir}/usr/sbin/local-parental-control"
 install -D -m 0755 "${build_dir}/lpctl" "${staging_dir}/usr/sbin/lpctl"
 install -D -m 0644 "${project_dir}/packaging/debian/local-parental-control.service" "${staging_dir}/lib/systemd/system/local-parental-control.service"
+install -D -m 0644 "${project_dir}/packaging/apparmor/local-parental-control" "${staging_dir}/etc/apparmor.d/local-parental-control"
 install -D -m 0600 "${project_dir}/example/config.json" "${staging_dir}/etc/local-parental-control/config.json"
 install -D -m 0644 "${project_dir}/README.md" "${staging_dir}/usr/share/doc/local-parental-control/README.md"
 install -D -m 0644 "${project_dir}/packaging/debian/copyright" "${staging_dir}/usr/share/doc/local-parental-control/copyright"
@@ -44,4 +45,3 @@ mkdir -p "${output_dir}"
 package_path="${output_dir}/local-parental-control_${package_version}_${architecture}.deb"
 dpkg-deb --build --root-owner-group "${staging_dir}" "${package_path}"
 echo "Debian package written to ${package_path}"
-

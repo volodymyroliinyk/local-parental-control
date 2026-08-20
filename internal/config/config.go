@@ -9,10 +9,12 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
 const DefaultPath = "/etc/local-parental-control/config.json"
+const maxConfigSize = 1 << 20
 
 type Config struct {
 	Timezone                string                `json:"timezone"`
@@ -33,11 +35,31 @@ type Application struct {
 }
 
 func Load(path string) (*Config, error) {
+	return load(path, false)
+}
+
+// LoadSecure loads a root-owned production configuration and validates that
+// every executable has a stable, system-owned identity.
+func LoadSecure(path string) (*Config, error) {
+	if err := validateSecureFile(path, 0, 0600); err != nil {
+		return nil, err
+	}
+	return load(path, true)
+}
+
+func load(path string, validateExecutables bool) (*Config, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > maxConfigSize {
+		return nil, fmt.Errorf("configuration exceeds %d bytes", maxConfigSize)
+	}
 	dec := json.NewDecoder(f)
 	dec.DisallowUnknownFields()
 	var cfg Config
@@ -54,7 +76,64 @@ func Load(path string) (*Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
+	if validateExecutables {
+		if err := cfg.validateExecutables(0); err != nil {
+			return nil, err
+		}
+	}
 	return &cfg, nil
+}
+
+func validateSecureFile(path string, expectedUID uint32, expectedMode os.FileMode) error {
+	parent := filepath.Dir(path)
+	parentInfo, err := os.Lstat(parent)
+	if err != nil {
+		return fmt.Errorf("inspect configuration directory: %w", err)
+	}
+	parentStat, ok := parentInfo.Sys().(*syscall.Stat_t)
+	if !ok || parentStat.Uid != expectedUID || !parentInfo.IsDir() || parentInfo.Mode().Perm()&0022 != 0 {
+		return fmt.Errorf("configuration directory %s must be owned by UID %d and not writable by group or others", parent, expectedUID)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != expectedUID || !info.Mode().IsRegular() || info.Mode().Perm() != expectedMode.Perm() {
+		return fmt.Errorf("configuration %s must be a regular UID %d-owned file with mode %04o", path, expectedUID, expectedMode.Perm())
+	}
+	return nil
+}
+
+func (c *Config) validateExecutables(expectedUID uint32) error {
+	for username, userConfig := range c.Users {
+		seen := make(map[string]bool)
+		for appIndex := range userConfig.Applications {
+			app := &userConfig.Applications[appIndex]
+			for pathIndex, executable := range app.Executables {
+				resolved, err := filepath.EvalSymlinks(executable)
+				if err != nil {
+					return fmt.Errorf("application %q executable %q: %w", app.ID, executable, err)
+				}
+				info, err := os.Stat(resolved)
+				if err != nil {
+					return fmt.Errorf("application %q executable %q: %w", app.ID, resolved, err)
+				}
+				stat, ok := info.Sys().(*syscall.Stat_t)
+				if !ok || stat.Uid != expectedUID || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 || info.Mode().Perm()&0022 != 0 {
+					return fmt.Errorf("application %q executable %q must be a UID %d-owned executable regular file not writable by group or others", app.ID, resolved, expectedUID)
+				}
+				resolved = filepath.Clean(resolved)
+				if seen[resolved] {
+					return fmt.Errorf("resolved executable %q appears in multiple rules for user %q", resolved, username)
+				}
+				seen[resolved] = true
+				app.Executables[pathIndex] = resolved
+			}
+		}
+		c.Users[username] = userConfig
+	}
+	return nil
 }
 
 func (c *Config) defaults() {
@@ -65,7 +144,7 @@ func (c *Config) defaults() {
 		c.PollIntervalSeconds = 2
 	}
 	if c.TerminationGraceSeconds == 0 {
-		c.TerminationGraceSeconds = 3
+		c.TerminationGraceSeconds = 15
 	}
 }
 

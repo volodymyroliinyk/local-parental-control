@@ -1,7 +1,7 @@
 {
   "timezone": "America/Toronto",
   "poll_interval_seconds": 2,
-  "termination_grace_seconds": 3,
+  "termination_grace_seconds": 15,
   "users": {
     "child": {
       "applications": [
@@ -25,4 +25,3 @@
     }
   }
 }
-

@@ -1,0 +1,20 @@
+#include <tunables/global>
+
+profile local-parental-control /usr/{,local/}sbin/local-parental-control flags=(attach_disconnected) {
+  #include <abstractions/base>
+
+  capability kill,
+  capability sys_ptrace,
+
+  /etc/local-parental-control/config.json r,
+  /proc/ r,
+  /proc/[0-9]*/status r,
+  /proc/[0-9]*/stat r,
+  /proc/[0-9]*/exe r,
+  /run/local-parental-control/ rw,
+  /run/local-parental-control/** rwk,
+  /var/lib/local-parental-control/ rw,
+  /var/lib/local-parental-control/** rwk,
+
+  signal (send) set=(term, kill),
+}

@@ -39,7 +39,7 @@ func run(args []string) int {
 
 	command := remaining[0]
 	if command == "validate" {
-		cfg, err := config.Load(*configPath)
+		cfg, err := config.LoadSecure(*configPath)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "invalid configuration:", err)
 			return 1

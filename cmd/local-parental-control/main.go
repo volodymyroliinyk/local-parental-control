@@ -29,7 +29,7 @@ func main() {
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.LoadSecure(*configPath)
 	if err != nil {
 		logger.Error("cannot load configuration", "error", err)
 		os.Exit(1)

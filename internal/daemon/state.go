@@ -1,12 +1,18 @@
 package daemon
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"syscall"
+	"time"
 )
+
+const maxStateSize = 4 << 20
 
 type usageState struct {
 	Date  string                      `json:"date"`
@@ -18,16 +24,41 @@ func newState(date string) usageState {
 }
 
 func loadState(path, date string) (usageState, error) {
-	data, err := os.ReadFile(path)
+	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return newState(date), nil
 	}
 	if err != nil {
 		return usageState{}, err
 	}
+	if err := validatePrivateFile(path, info); err != nil {
+		return usageState{}, err
+	}
+	if info.Size() > maxStateSize {
+		return usageState{}, fmt.Errorf("state exceeds %d bytes", maxStateSize)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return usageState{}, err
+	}
 	var state usageState
-	if err := json.Unmarshal(data, &state); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&state); err != nil {
 		return usageState{}, fmt.Errorf("decode state: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return usageState{}, errors.New("state contains trailing data")
+	}
+	if _, err := time.Parse("2006-01-02", state.Date); err != nil {
+		return usageState{}, fmt.Errorf("invalid state date: %w", err)
+	}
+	for username, applications := range state.Users {
+		for application, seconds := range applications {
+			if seconds < 0 || seconds > 86400 {
+				return usageState{}, fmt.Errorf("invalid usage for %q/%q: %d", username, application, seconds)
+			}
+		}
 	}
 	if state.Date != date {
 		return newState(date), nil
@@ -40,6 +71,9 @@ func loadState(path, date string) (usageState, error) {
 
 func saveState(path string, state usageState) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	if err := validatePrivateDirectory(filepath.Dir(path)); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
@@ -68,5 +102,33 @@ func saveState(path string, state usageState) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, path)
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	directory, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
+}
+
+func validatePrivateDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != uint32(os.Geteuid()) || !info.IsDir() || info.Mode().Perm() != 0700 {
+		return fmt.Errorf("state directory %s must be owned by UID %d with mode 0700", path, os.Geteuid())
+	}
+	return nil
+}
+
+func validatePrivateFile(path string, info os.FileInfo) error {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != uint32(os.Geteuid()) || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 {
+		return fmt.Errorf("state %s must be a regular UID %d-owned file with mode 0600", path, os.Geteuid())
+	}
+	return nil
 }

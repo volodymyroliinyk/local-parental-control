@@ -4,6 +4,12 @@ Local Parental Control is a service for Ubuntu and other Linux systems. A root d
 
 This version controls native processes only.
 
+Detailed documentation:
+
+- [Installation and administration](docs/INSTALL.md)
+- [Development guide](docs/DEVELOPMENT.md)
+- [Security model](docs/SECURITY.md)
+
 ## How it works
 
 - The daemon starts at boot through `systemd` and scans `/proc` at a configurable interval.
@@ -30,7 +36,7 @@ Copy and edit [`example/config.json`](example/config.json). The service reads `/
 {
   "timezone": "America/Toronto",
   "poll_interval_seconds": 2,
-  "termination_grace_seconds": 3,
+  "termination_grace_seconds": 15,
   "users": {
     "child": {
       "applications": [
@@ -50,20 +56,36 @@ Important details:
 
 - Usernames must already exist when configuration is validated or loaded.
 - Each executable path must be absolute and unique within a user's rules.
+- Executables are resolved through symlinks when the production configuration
+  is loaded. The resolved file must be owned by root, executable, regular, and
+  not writable by group or other users.
 - Put all real executables used by an application in the same rule. Wrapper scripts and `.desktop` files are not executable identities.
 - Use `readlink -f /proc/PID/exe` while an application runs to discover its actual executable.
 - A limit is 1–1440 minutes. The polling interval and termination grace period are 1–60 seconds.
 - Unknown JSON fields are rejected to catch misspelled settings.
 
+When a limit is reached, the daemon sends `SIGTERM` first and waits for the
+configured grace period. It then uses `SIGKILL` if the same process is still
+running. Keep enough grace time for applications to save their data; the
+default is 15 seconds.
+
 Snap and Flatpak applications may run through shared launchers or sandbox-specific paths. Confirm their real `/proc/PID/exe` values before adding them. Do not put a shared executable such as `/usr/bin/java` in a rule unless all programs using it should share that limit.
 
 ## Install
 
+See the [installation guide](docs/INSTALL.md) for prerequisites,
+troubleshooting, updates, and removal.
+
 Review the scripts and example configuration first, then run:
 
 ```bash
+./scripts/build.sh
 sudo ./scripts/install.sh
 ```
+
+The build must run as the administrator account, not as root. The installer
+accepts only regular, administrator-owned binaries that are not writable by
+group or other users. AppArmor must be installed and enabled.
 
 On a new installation, the script copies the example configuration. It will not start the daemon until the configured user exists and the file validates. After editing:
 
@@ -91,6 +113,7 @@ If a new configuration is invalid, `reload` reports an error and the daemon cont
 To update an installation made with `scripts/install.sh` while preserving the configuration and usage data:
 
 ```bash
+./scripts/build.sh
 sudo ./scripts/update.sh
 ```
 
@@ -101,6 +124,9 @@ sudo ./scripts/uninstall.sh
 ```
 
 ## Development
+
+See the [development guide](docs/DEVELOPMENT.md) before changing process
+handling, root scripts, systemd confinement, or AppArmor policy.
 
 ```bash
 make check
@@ -123,6 +149,20 @@ When preparing a release, move the `Unreleased` entries under a version and date
 ./scripts/update-changelog.sh release 0.2.0
 ```
 
+The release script verifies the repository, runs tests, builds release artifacts,
+updates the changelog, updates `develop` and `main`, creates a version tag, and
+publishes a GitHub Release through the GitHub CLI. Run a dry check first:
+
+```bash
+./scripts/release.sh 0.2.0 --dry-run
+./scripts/release.sh 0.2.0
+```
+
+The normal release command shows its plan and requires the exact confirmation
+`RELEASE 0.2.0` before it creates commits, tags, or remote changes. Use `--draft`
+to create a draft GitHub Release. Do not run a release until manual application
+and installation tests are complete.
+
 To build a native Debian/Ubuntu package:
 
 ```bash
@@ -132,7 +172,8 @@ sudo apt install ./dist/local-parental-control_0.1.0_amd64.deb
 
 The package installs the daemon and CLI in `/usr/sbin`, the systemd unit in
 `/lib/systemd/system`, and a dpkg-managed configuration in
-`/etc/local-parental-control/config.json`. If the example username does not
+`/etc/local-parental-control/config.json`. It also installs an enforcing
+AppArmor profile. If the example username does not
 exist, installation succeeds but the service remains disabled until the
 configuration validates. Package upgrades preserve the administrator's config.
 

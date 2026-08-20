@@ -3,8 +3,10 @@ set -e
 
 systemctl daemon-reload >/dev/null 2>&1 || true
 if [ "$1" = "purge" ]; then
+  if command -v apparmor_parser >/dev/null 2>&1; then
+    apparmor_parser -R /etc/apparmor.d/local-parental-control >/dev/null 2>&1 || true
+  fi
   rm -rf -- /var/lib/local-parental-control
 fi
 
 exit 0
-
