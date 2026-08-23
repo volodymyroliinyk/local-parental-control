@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestStateRoundTripAndDailyReset(t *testing.T) {
@@ -12,6 +13,8 @@ func TestStateRoundTripAndDailyReset(t *testing.T) {
 	state := newState("2026-08-19")
 	state.Users["child"] = map[string]int64{"vlc": 42}
 	state.DeviceSeconds["child"] = 84
+	state.ContinuousSeconds["child"] = 42
+	state.BreakUntil["child"] = time.Date(2026, 8, 19, 12, 10, 0, 0, time.UTC)
 	if err := saveState(path, state); err != nil {
 		t.Fatal(err)
 	}
@@ -24,6 +27,9 @@ func TestStateRoundTripAndDailyReset(t *testing.T) {
 	}
 	if loaded.DeviceSeconds["child"] != 84 {
 		t.Fatalf("unexpected device state: %+v", loaded)
+	}
+	if loaded.ContinuousSeconds["child"] != 42 || !loaded.BreakUntil["child"].Equal(state.BreakUntil["child"]) {
+		t.Fatalf("unexpected break state: %+v", loaded)
 	}
 	reset, err := loadState(path, "2026-08-20")
 	if err != nil {
@@ -43,13 +49,15 @@ func TestStateRoundTripAndDailyReset(t *testing.T) {
 
 func TestLoadStateRejectsUntrustedOrInvalidData(t *testing.T) {
 	tests := map[string]string{
-		"unknown field":        `{"date":"2026-08-20","users":{},"extra":true}`,
-		"trailing data":        `{"date":"2026-08-20","users":{}} {}`,
-		"invalid date":         `{"date":"not-a-date","users":{}}`,
-		"negative use":         `{"date":"2026-08-20","users":{"child":{"app":-1}}}`,
-		"excessive use":        `{"date":"2026-08-20","users":{"child":{"app":86401}}}`,
-		"negative device use":  `{"date":"2026-08-20","device_seconds":{"child":-1},"users":{}}`,
-		"excessive device use": `{"date":"2026-08-20","device_seconds":{"child":86401},"users":{}}`,
+		"unknown field":           `{"date":"2026-08-20","users":{},"extra":true}`,
+		"trailing data":           `{"date":"2026-08-20","users":{}} {}`,
+		"invalid date":            `{"date":"not-a-date","users":{}}`,
+		"negative use":            `{"date":"2026-08-20","users":{"child":{"app":-1}}}`,
+		"excessive use":           `{"date":"2026-08-20","users":{"child":{"app":86401}}}`,
+		"negative device use":     `{"date":"2026-08-20","device_seconds":{"child":-1},"users":{}}`,
+		"excessive device use":    `{"date":"2026-08-20","device_seconds":{"child":86401},"users":{}}`,
+		"negative continuous use": `{"date":"2026-08-20","continuous_seconds":{"child":-1},"users":{}}`,
+		"zero break deadline":     `{"date":"2026-08-20","break_until":{"child":"0001-01-01T00:00:00Z"},"users":{}}`,
 	}
 	for name, contents := range tests {
 		t.Run(name, func(t *testing.T) {

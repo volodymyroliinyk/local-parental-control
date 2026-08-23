@@ -15,13 +15,15 @@ import (
 const maxStateSize = 4 << 20
 
 type usageState struct {
-	Date          string                      `json:"date"`
-	DeviceSeconds map[string]int64            `json:"device_seconds"`
-	Users         map[string]map[string]int64 `json:"users"`
+	Date              string                      `json:"date"`
+	DeviceSeconds     map[string]int64            `json:"device_seconds"`
+	ContinuousSeconds map[string]int64            `json:"continuous_seconds"`
+	BreakUntil        map[string]time.Time        `json:"break_until"`
+	Users             map[string]map[string]int64 `json:"users"`
 }
 
 func newState(date string) usageState {
-	return usageState{Date: date, DeviceSeconds: make(map[string]int64), Users: make(map[string]map[string]int64)}
+	return usageState{Date: date, DeviceSeconds: make(map[string]int64), ContinuousSeconds: make(map[string]int64), BreakUntil: make(map[string]time.Time), Users: make(map[string]map[string]int64)}
 }
 
 func loadState(path, date string) (usageState, error) {
@@ -66,6 +68,16 @@ func loadState(path, date string) (usageState, error) {
 			return usageState{}, fmt.Errorf("invalid device usage for %q: %d", username, seconds)
 		}
 	}
+	for username, seconds := range state.ContinuousSeconds {
+		if seconds < 0 || seconds > 86400 {
+			return usageState{}, fmt.Errorf("invalid continuous usage for %q: %d", username, seconds)
+		}
+	}
+	for username, until := range state.BreakUntil {
+		if until.IsZero() {
+			return usageState{}, fmt.Errorf("invalid break deadline for %q", username)
+		}
+	}
 	if state.Date != date {
 		return newState(date), nil
 	}
@@ -74,6 +86,12 @@ func loadState(path, date string) (usageState, error) {
 	}
 	if state.DeviceSeconds == nil {
 		state.DeviceSeconds = make(map[string]int64)
+	}
+	if state.ContinuousSeconds == nil {
+		state.ContinuousSeconds = make(map[string]int64)
+	}
+	if state.BreakUntil == nil {
+		state.BreakUntil = make(map[string]time.Time)
 	}
 	return state, nil
 }

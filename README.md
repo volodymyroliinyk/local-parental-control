@@ -16,7 +16,7 @@ Detailed documentation:
 - Processes are attributed by numeric UID and matched against the resolved `/proc/PID/exe` path.
 - An application accrues wall-clock time once while one or more matching processes run.
 - A user's device allowance accrues once while any process owned by that user is present, regardless of the number of processes.
-- Outside the allowed hours or after the daily device allowance is exhausted, the daemon asks `systemd-logind` to terminate all sessions for the user's numeric UID.
+- Outside the allowed hours, after the daily device allowance, or during a mandatory break, the daemon asks `systemd-logind` to lock the controlled user's graphical sessions.
 - At the limit, every matching process receives `SIGTERM`; processes still present after the grace period receive `SIGKILL`.
 - Usage is stored in `/var/lib/local-parental-control/usage.json` with atomic writes and resets on the next poll after local midnight.
 - Administrative commands use a root-only Unix socket. The child account cannot reset counters or reload configuration.
@@ -42,6 +42,8 @@ Copy and edit [`example/config.json`](example/config.json). The service reads `/
   "users": {
     "child": {
       "daily_device_minutes": 180,
+      "continuous_use_minutes": 60,
+      "break_minutes": 10,
       "allowed_from": "11:00",
       "allowed_until": "20:00",
       "applications": [
@@ -67,6 +69,7 @@ Important details:
 - Put all real executables used by an application in the same rule. Wrapper scripts and `.desktop` files are not executable identities.
 - Use `readlink -f /proc/PID/exe` while an application runs to discover its actual executable.
 - `daily_device_minutes` is required and must be 1–1440 minutes.
+- `continuous_use_minutes` and `break_minutes` are 1–1440 minutes. When omitted, they default to 60 and 10 respectively.
 - `allowed_from` and `allowed_until` are required 24-hour `HH:MM` values. The start is inclusive, the end is exclusive, and the start must be earlier than the end; overnight windows are not supported.
 - Application rules are optional. An application limit is 1–1440 minutes. The polling interval and termination grace period are 1–60 seconds.
 - Unknown JSON fields are rejected to catch misspelled settings.
@@ -77,10 +80,21 @@ running. Keep enough grace time for applications to save their data; the
 default is 15 seconds.
 
 Device limits are enforced at the next polling iteration with
-`loginctl terminate-user`. This ends every local session belonging to the
-configured numeric UID and may cause unsaved work to be lost. `lpctl reset USER`
+`loginctl lock-session`. The daemon resolves the graphical sessions belonging
+to the configured numeric UID and repeatedly requests a lock while access is
+blocked. Programs remain running and unsaved work is retained. The desktop
+environment must support systemd-logind's lock request; otherwise enforcement
+is not possible and the daemon records an error. `lpctl reset USER`
 resets both the device and application counters; resetting one application does
 not reset device time.
+
+After `continuous_use_minutes` of use, the screen remains locked for
+`break_minutes`. Break progress is persisted, so restarting the daemon does not
+cancel an active break. The default 60/10 schedule follows general ergonomic
+guidance from the [American Academy of Pediatrics](https://www.healthychildren.org/English/health-issues/conditions/eyes/Pages/What-Too-Much-Screen-Time-Does-to-Your-Childs-Eyes.aspx)
+and [CCOHS](https://www.ccohs.ca/oshanswers/ergonomics/office/stretching.html)
+to leave the screen for 5–10 minutes each hour. It is separate from short
+eye-rest reminders such as the 20-20-20 rule.
 
 Snap and Flatpak applications may run through shared launchers or sandbox-specific paths. Confirm their real `/proc/PID/exe` values before adding them. Do not put a shared executable such as `/usr/bin/java` in a rule unless all programs using it should share that limit.
 
@@ -194,7 +208,7 @@ configuration validates. Package upgrades preserve the administrator's config.
 
 The controlled account must not have sudo/root access. Root can always stop or alter this service. Process polling means a newly launched over-limit application can run for up to one polling interval. Executables copied to a different path do not match the original rule, so the child account should not have access to terminals, interpreters, alternative launchers, package installation, AppImage execution, Wine, or virtual machines if those are realistic bypasses. Those OS-level restrictions are administrator policy and are deliberately not applied automatically by this project.
 
-Changing the wall clock can affect the daily reset and allowed-hours checks. The supplied service cannot change the system clock (`ProtectClock=true`), but the administrator must also ensure the child account lacks permission to do so. Device presence is inferred from processes owned by the configured UID; user services configured to linger after logout can continue consuming the allowance and can cause repeated logout enforcement.
+Changing the wall clock can affect the daily reset, allowed-hours checks, and break deadlines. The supplied service cannot change the system clock (`ProtectClock=true`), but the administrator must also ensure the child account lacks permission to do so. Device presence is inferred from processes owned by the configured UID; lingering user services and processes that remain active while the screen is locked can continue consuming time.
 
 ## License
 

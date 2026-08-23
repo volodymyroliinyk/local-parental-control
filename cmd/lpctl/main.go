@@ -120,6 +120,11 @@ func printStatus(status *api.Status) {
 			state = "BLOCKED"
 		}
 		fmt.Printf("  Device                   %6.1f / %-6.1f min  %s (%s-%s)\n", float64(user.DeviceUsedSeconds)/60, float64(user.DeviceLimitSeconds)/60, state, user.AllowedFrom, user.AllowedUntil)
+		if user.BreakUntil != "" {
+			fmt.Printf("  Break                    active until %s\n", user.BreakUntil)
+		} else {
+			fmt.Printf("  Continuous use           %6.1f / %-6.1f min\n", float64(user.ContinuousUsedSeconds)/60, float64(user.ContinuousLimitSeconds)/60)
+		}
 		for _, app := range user.Applications {
 			state := "ALLOWED"
 			if app.Blocked {

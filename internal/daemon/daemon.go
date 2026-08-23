@@ -39,7 +39,6 @@ type Service struct {
 	loadConfig                        func(string) (*config.Config, error)
 	authorizePeer                     func(net.Conn) error
 	sessions                          sessionController
-	logoutRequested                   map[uint32]bool
 }
 
 type pendingTermination struct {
@@ -53,7 +52,7 @@ func New(cfg *config.Config, configPath, statePath, socketPath string, logger *s
 	if err != nil {
 		return nil, err
 	}
-	s := &Service{cfg: cfg, configPath: configPath, statePath: statePath, socketPath: socketPath, state: state, scanner: proc.NewScanner(), logger: logger, pendingKill: make(map[int]pendingTermination), sessions: loginctlController{}, logoutRequested: make(map[uint32]bool), now: time.Now, loadConfig: config.LoadSecure, authorizePeer: authorizeRootPeer, lastTick: now}
+	s := &Service{cfg: cfg, configPath: configPath, statePath: statePath, socketPath: socketPath, state: state, scanner: proc.NewScanner(), logger: logger, pendingKill: make(map[int]pendingTermination), sessions: loginctlController{}, now: time.Now, loadConfig: config.LoadSecure, authorizePeer: authorizeRootPeer, lastTick: now}
 	if err := s.resolveUsers(); err != nil {
 		return nil, err
 	}
@@ -163,20 +162,30 @@ func (s *Service) tick() error {
 	for username, uid := range activeUsers {
 		uc := s.cfg.Users[username]
 		used := s.state.DeviceSeconds[username]
-		blocked := !uc.AllowedAt(now.In(s.cfg.Location())) || used >= int64(uc.DailyDeviceMinutes*60)
-		if !blocked {
-			s.state.DeviceSeconds[username] += seconds
-			blocked = s.state.DeviceSeconds[username] >= int64(uc.DailyDeviceMinutes*60)
+		if !uc.AllowedAt(now.In(s.cfg.Location())) || used >= int64(uc.DailyDeviceMinutes*60) {
+			s.state.ContinuousSeconds[username] = 0
+			delete(s.state.BreakUntil, username)
+			s.lock(uid, username, "device access limit")
+			continue
 		}
-		if blocked {
-			s.logout(uid, username)
-		} else {
-			delete(s.logoutRequested, uid)
+		if until, onBreak := s.state.BreakUntil[username]; onBreak {
+			if now.Before(until) {
+				s.lock(uid, username, "mandatory break")
+				continue
+			}
+			delete(s.state.BreakUntil, username)
+			s.state.ContinuousSeconds[username] = 0
 		}
-	}
-	for uid, username := range s.uidUsers {
-		if _, active := activeUsers[username]; !active {
-			delete(s.logoutRequested, uid)
+		s.state.DeviceSeconds[username] += seconds
+		s.state.ContinuousSeconds[username] += seconds
+		if s.state.DeviceSeconds[username] >= int64(uc.DailyDeviceMinutes*60) {
+			s.lock(uid, username, "daily device limit")
+			continue
+		}
+		if s.state.ContinuousSeconds[username] >= int64(uc.ContinuousUseMinutes*60) {
+			s.state.ContinuousSeconds[username] = 0
+			s.state.BreakUntil[username] = now.Add(time.Duration(uc.BreakMinutes) * time.Minute)
+			s.lock(uid, username, "mandatory break")
 		}
 	}
 	for username, apps := range active {
@@ -210,16 +219,12 @@ func (s *Service) tick() error {
 	return saveState(s.statePath, s.state)
 }
 
-func (s *Service) logout(uid uint32, username string) {
-	if s.logoutRequested[uid] {
+func (s *Service) lock(uid uint32, username, reason string) {
+	if err := s.sessions.Lock(uid); err != nil {
+		s.logger.Warn("screen lock failed", "user", username, "uid", uid, "reason", reason, "error", err)
 		return
 	}
-	if err := s.sessions.Terminate(uid); err != nil {
-		s.logger.Warn("user logout failed", "user", username, "uid", uid, "error", err)
-		return
-	}
-	s.logoutRequested[uid] = true
-	s.logger.Warn("device access limit enforced", "user", username, "uid", uid)
+	s.logger.Debug("screen lock requested", "user", username, "uid", uid, "reason", reason)
 }
 
 func findApplication(uc config.UserConfig, executable string) (config.Application, bool) {
@@ -370,7 +375,6 @@ func (s *Service) execute(req api.Request) api.Response {
 		}
 		// A raised limit or removed rule must cancel previously scheduled kills.
 		s.pendingKill = make(map[int]pendingTermination)
-		s.logoutRequested = make(map[uint32]bool)
 		return api.Response{OK: true, Message: "configuration reloaded"}
 	case "reset":
 		if _, ok := s.cfg.Users[req.User]; !ok {
@@ -379,6 +383,8 @@ func (s *Service) execute(req api.Request) api.Response {
 		if req.Application == "" {
 			delete(s.state.Users, req.User)
 			delete(s.state.DeviceSeconds, req.User)
+			delete(s.state.ContinuousSeconds, req.User)
+			delete(s.state.BreakUntil, req.User)
 		} else {
 			found := false
 			for _, app := range s.cfg.Users[req.User].Applications {
@@ -395,7 +401,6 @@ func (s *Service) execute(req api.Request) api.Response {
 		}
 		// Reset is an explicit administrative unblock operation.
 		s.pendingKill = make(map[int]pendingTermination)
-		s.logoutRequested = make(map[uint32]bool)
 		if err := saveState(s.statePath, s.state); err != nil {
 			return api.Response{Error: err.Error()}
 		}
@@ -416,7 +421,11 @@ func (s *Service) status() *api.Status {
 		uc := s.cfg.Users[name]
 		deviceLimit := int64(uc.DailyDeviceMinutes * 60)
 		deviceUsed := s.state.DeviceSeconds[name]
-		us := api.UserStatus{Name: name, DeviceUsedSeconds: deviceUsed, DeviceLimitSeconds: deviceLimit, AllowedFrom: uc.AllowedFrom, AllowedUntil: uc.AllowedUntil, DeviceBlocked: deviceUsed >= deviceLimit || !uc.AllowedAt(s.now().In(s.cfg.Location()))}
+		us := api.UserStatus{Name: name, DeviceUsedSeconds: deviceUsed, DeviceLimitSeconds: deviceLimit, AllowedFrom: uc.AllowedFrom, AllowedUntil: uc.AllowedUntil, DeviceBlocked: deviceUsed >= deviceLimit || !uc.AllowedAt(s.now().In(s.cfg.Location())), ContinuousUsedSeconds: s.state.ContinuousSeconds[name], ContinuousLimitSeconds: int64(uc.ContinuousUseMinutes * 60)}
+		if until, ok := s.state.BreakUntil[name]; ok && s.now().Before(until) {
+			us.BreakUntil = until.In(s.cfg.Location()).Format(time.RFC3339)
+			us.DeviceBlocked = true
+		}
 		apps := append([]config.Application(nil), s.cfg.Users[name].Applications...)
 		sort.Slice(apps, func(i, j int) bool { return apps[i].ID < apps[j].ID })
 		for _, app := range apps {

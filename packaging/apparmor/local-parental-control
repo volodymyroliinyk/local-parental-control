@@ -15,6 +15,7 @@ profile local-parental-control /usr/{,local/}sbin/local-parental-control flags=(
   /proc/[0-9]*/status r,
   /proc/[0-9]*/stat r,
   /proc/[0-9]*/exe r,
+  /run/dbus/system_bus_socket rw,
   /run/local-parental-control/ rw,
   /run/local-parental-control/** rwk,
   /run/systemd/private rw,

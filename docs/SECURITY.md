@@ -21,8 +21,9 @@ process, but they do not make it equivalent to an unprivileged service.
 - systemd removes unnecessary capabilities, address families, namespaces, and
   system calls.
 - AppArmor limits filesystem access and outbound signals.
-- Session termination passes only a validated numeric UID to the fixed
-  `/usr/bin/loginctl terminate-user` command and has a five-second timeout.
+- Screen locking queries sessions using only a validated numeric UID and passes
+  validated session identifiers to the fixed `/usr/bin/loginctl lock-session`
+  command. Each operation has a five-second timeout.
 
 ## Limitations
 
@@ -34,10 +35,11 @@ and is outside this service.
 
 Polling allows an over-limit application or login session to run for up to one poll interval.
 After the configured grace period, `SIGKILL` can cause unsaved application data
-to be lost. Session termination can also lose unsaved work and terminates every
-session owned by the configured UID. Device presence is inferred from owned
-processes, so lingering user services can consume device time after logout.
-Changing the system clock can affect the daily reset and allowed-hours checks.
+to be lost. Screen locking preserves running programs, but it depends on the
+desktop environment honoring systemd-logind's lock request. Device presence is
+inferred from owned processes, so lingering services and processes that remain
+active behind a locked screen can continue consuming time. Changing the system
+clock can affect the daily reset, allowed-hours checks, and break deadlines.
 
 The service is not a substitute for account separation, filesystem
 permissions, application sandboxing, backups, or operating-system updates.

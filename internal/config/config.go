@@ -24,10 +24,12 @@ type Config struct {
 }
 
 type UserConfig struct {
-	DailyDeviceMinutes int           `json:"daily_device_minutes"`
-	AllowedFrom        string        `json:"allowed_from"`
-	AllowedUntil       string        `json:"allowed_until"`
-	Applications       []Application `json:"applications"`
+	DailyDeviceMinutes   int           `json:"daily_device_minutes"`
+	ContinuousUseMinutes int           `json:"continuous_use_minutes"`
+	BreakMinutes         int           `json:"break_minutes"`
+	AllowedFrom          string        `json:"allowed_from"`
+	AllowedUntil         string        `json:"allowed_until"`
+	Applications         []Application `json:"applications"`
 }
 
 type Application struct {
@@ -149,6 +151,15 @@ func (c *Config) defaults() {
 	if c.TerminationGraceSeconds == 0 {
 		c.TerminationGraceSeconds = 15
 	}
+	for username, userConfig := range c.Users {
+		if userConfig.ContinuousUseMinutes == 0 {
+			userConfig.ContinuousUseMinutes = 60
+		}
+		if userConfig.BreakMinutes == 0 {
+			userConfig.BreakMinutes = 10
+		}
+		c.Users[username] = userConfig
+	}
 }
 
 func (c *Config) Validate() error {
@@ -173,6 +184,12 @@ func (c *Config) Validate() error {
 		}
 		if uc.DailyDeviceMinutes < 1 || uc.DailyDeviceMinutes > 1440 {
 			return fmt.Errorf("users.%s.daily_device_minutes must be between 1 and 1440", username)
+		}
+		if uc.ContinuousUseMinutes < 1 || uc.ContinuousUseMinutes > 1440 {
+			return fmt.Errorf("users.%s.continuous_use_minutes must be between 1 and 1440", username)
+		}
+		if uc.BreakMinutes < 1 || uc.BreakMinutes > 1440 {
+			return fmt.Errorf("users.%s.break_minutes must be between 1 and 1440", username)
 		}
 		from, err := parseClock(uc.AllowedFrom)
 		if err != nil {

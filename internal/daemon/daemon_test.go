@@ -32,7 +32,7 @@ type fakeSessions struct {
 	err  error
 }
 
-func (f *fakeSessions) Terminate(uid uint32) error {
+func (f *fakeSessions) Lock(uid uint32) error {
 	if f.err != nil {
 		return f.err
 	}
@@ -53,7 +53,7 @@ func (f *fakeScanner) Signal(process proc.Info, signal syscall.Signal) error {
 func TestTickCountsApplicationOnceAndEnforcesLimit(t *testing.T) {
 	start := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
 	now := start
-	cfg := &config.Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]config.UserConfig{"child": {DailyDeviceMinutes: 60, AllowedFrom: "00:00", AllowedUntil: "23:59", Applications: []config.Application{{ID: "game", Name: "Game", Executables: []string{"/opt/game"}, DailyMinutes: 1}}}}}
+	cfg := &config.Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]config.UserConfig{"child": {DailyDeviceMinutes: 60, ContinuousUseMinutes: 60, BreakMinutes: 10, AllowedFrom: "00:00", AllowedUntil: "23:59", Applications: []config.Application{{ID: "game", Name: "Game", Executables: []string{"/opt/game"}, DailyMinutes: 1}}}}}
 	fake := &fakeScanner{processes: []proc.Info{{PID: 1, UID: 1000, Executable: "/opt/game"}, {PID: 2, UID: 1000, Executable: "/opt/game"}}}
 	s := &Service{cfg: cfg, statePath: filepath.Join(t.TempDir(), "state", "state.json"), state: newState("2026-08-19"), scanner: fake, logger: slog.New(slog.NewTextHandler(io.Discard, nil)), uidUsers: map[uint32]string{1000: "child"}, pendingKill: map[int]pendingTermination{}, lastTick: start, now: func() time.Time { return now }}
 	now = now.Add(2 * time.Second)
@@ -77,7 +77,7 @@ func TestTickResetsDateAndClampsElapsedTime(t *testing.T) {
 	start := time.Date(2026, 8, 19, 23, 59, 59, 0, time.UTC)
 	now := start.Add(10 * time.Second)
 	fake := &fakeScanner{processes: []proc.Info{{PID: 10, UID: 1000, Executable: "/opt/app"}}}
-	s := testService(t, start, &config.Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]config.UserConfig{"child": {DailyDeviceMinutes: 60, AllowedFrom: "00:00", AllowedUntil: "23:59", Applications: []config.Application{{ID: "app", Name: "App", Executables: []string{"/opt/app"}, DailyMinutes: 10}}}}}, fake)
+	s := testService(t, start, &config.Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]config.UserConfig{"child": {DailyDeviceMinutes: 60, ContinuousUseMinutes: 60, BreakMinutes: 10, AllowedFrom: "00:00", AllowedUntil: "23:59", Applications: []config.Application{{ID: "app", Name: "App", Executables: []string{"/opt/app"}, DailyMinutes: 10}}}}}, fake)
 	s.state.Users["child"] = map[string]int64{"app": 100}
 	s.now = func() time.Time { return now }
 	if err := s.tick(); err != nil {
@@ -96,12 +96,12 @@ func TestTickResetsDateAndClampsElapsedTime(t *testing.T) {
 	}
 }
 
-func TestTickCountsDeviceOnceAndLogsOutAtDailyLimit(t *testing.T) {
+func TestTickCountsDeviceOnceAndLocksAtDailyLimit(t *testing.T) {
 	start := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
 	now := start.Add(2 * time.Second)
 	fake := &fakeScanner{processes: []proc.Info{{PID: 1, UID: 1000}, {PID: 2, UID: 1000}}}
 	s := testService(t, start, basicConfig(), fake)
-	s.cfg.Users["child"] = config.UserConfig{DailyDeviceMinutes: 1, AllowedFrom: "08:00", AllowedUntil: "20:00", Applications: s.cfg.Users["child"].Applications}
+	s.cfg.Users["child"] = config.UserConfig{DailyDeviceMinutes: 1, ContinuousUseMinutes: 60, BreakMinutes: 10, AllowedFrom: "08:00", AllowedUntil: "20:00", Applications: s.cfg.Users["child"].Applications}
 	s.state.DeviceSeconds["child"] = 58
 	s.now = func() time.Time { return now }
 	if err := s.tick(); err != nil {
@@ -112,22 +112,22 @@ func TestTickCountsDeviceOnceAndLogsOutAtDailyLimit(t *testing.T) {
 	}
 	sessions := s.sessions.(*fakeSessions)
 	if len(sessions.uids) != 1 || sessions.uids[0] != 1000 {
-		t.Fatalf("logout UIDs = %v", sessions.uids)
+		t.Fatalf("locked UIDs = %v", sessions.uids)
 	}
 	if err := s.tick(); err != nil {
 		t.Fatal(err)
 	}
-	if len(sessions.uids) != 1 {
-		t.Fatalf("duplicate logout requests = %v", sessions.uids)
+	if len(sessions.uids) != 2 {
+		t.Fatalf("lock was not reinforced = %v", sessions.uids)
 	}
 }
 
-func TestTickLogsOutOutsideWindowWithoutCountingUsage(t *testing.T) {
+func TestTickLocksOutsideWindowWithoutCountingUsage(t *testing.T) {
 	start := time.Date(2026, 8, 19, 7, 59, 58, 0, time.UTC)
 	now := start.Add(2 * time.Second)
 	fake := &fakeScanner{processes: []proc.Info{{PID: 1, UID: 1000}}}
 	s := testService(t, start, basicConfig(), fake)
-	s.cfg.Users["child"] = config.UserConfig{DailyDeviceMinutes: 60, AllowedFrom: "08:01", AllowedUntil: "20:00", Applications: s.cfg.Users["child"].Applications}
+	s.cfg.Users["child"] = config.UserConfig{DailyDeviceMinutes: 60, ContinuousUseMinutes: 60, BreakMinutes: 10, AllowedFrom: "08:01", AllowedUntil: "20:00", Applications: s.cfg.Users["child"].Applications}
 	s.now = func() time.Time { return now }
 	if err := s.tick(); err != nil {
 		t.Fatal(err)
@@ -136,22 +136,65 @@ func TestTickLogsOutOutsideWindowWithoutCountingUsage(t *testing.T) {
 		t.Fatalf("device usage outside window = %d", got)
 	}
 	if got := len(s.sessions.(*fakeSessions).uids); got != 1 {
-		t.Fatalf("logout count = %d", got)
+		t.Fatalf("lock count = %d", got)
 	}
 }
 
-func TestTickRetriesFailedLogout(t *testing.T) {
+func TestTickRetriesFailedLock(t *testing.T) {
 	start := time.Date(2026, 8, 19, 7, 0, 0, 0, time.UTC)
 	fake := &fakeScanner{processes: []proc.Info{{PID: 1, UID: 1000}}}
 	s := testService(t, start, basicConfig(), fake)
-	s.cfg.Users["child"] = config.UserConfig{DailyDeviceMinutes: 60, AllowedFrom: "08:00", AllowedUntil: "20:00", Applications: s.cfg.Users["child"].Applications}
+	s.cfg.Users["child"] = config.UserConfig{DailyDeviceMinutes: 60, ContinuousUseMinutes: 60, BreakMinutes: 10, AllowedFrom: "08:00", AllowedUntil: "20:00", Applications: s.cfg.Users["child"].Applications}
 	sessions := s.sessions.(*fakeSessions)
 	sessions.err = errors.New("logind unavailable")
 	if err := s.tick(); err != nil {
 		t.Fatal(err)
 	}
-	if s.logoutRequested[1000] {
-		t.Fatal("failed logout was marked as requested")
+	if len(sessions.uids) != 0 {
+		t.Fatal("failed lock was recorded as successful")
+	}
+}
+
+func TestTickStartsAndEnforcesMandatoryBreak(t *testing.T) {
+	start := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	now := start.Add(2 * time.Second)
+	fake := &fakeScanner{processes: []proc.Info{{PID: 1, UID: 1000}}}
+	s := testService(t, start, basicConfig(), fake)
+	uc := s.cfg.Users["child"]
+	uc.ContinuousUseMinutes = 1
+	uc.BreakMinutes = 10
+	s.cfg.Users["child"] = uc
+	s.state.ContinuousSeconds["child"] = 58
+	s.now = func() time.Time { return now }
+
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	wantUntil := now.Add(10 * time.Minute)
+	if got := s.state.BreakUntil["child"]; !got.Equal(wantUntil) {
+		t.Fatalf("break until = %v, want %v", got, wantUntil)
+	}
+	if s.state.ContinuousSeconds["child"] != 0 || len(s.sessions.(*fakeSessions).uids) != 1 {
+		t.Fatalf("break was not started: %+v", s.state)
+	}
+
+	now = now.Add(5 * time.Minute)
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.sessions.(*fakeSessions).uids) != 2 || s.state.DeviceSeconds["child"] != 2 {
+		t.Fatal("active break was not reinforced or counted device time")
+	}
+
+	now = wantUntil
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if _, active := s.state.BreakUntil["child"]; active {
+		t.Fatal("expired break remains active")
+	}
+	if s.state.ContinuousSeconds["child"] != 4 {
+		t.Fatalf("continuous usage after break = %d", s.state.ContinuousSeconds["child"])
 	}
 }
 
@@ -221,8 +264,8 @@ func TestTerminateDoesNotScheduleKillAfterSignalError(t *testing.T) {
 func TestExecuteStatusAndReset(t *testing.T) {
 	start := time.Now()
 	cfg := &config.Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]config.UserConfig{
-		"z-user": {DailyDeviceMinutes: 60, AllowedFrom: "00:00", AllowedUntil: "23:59", Applications: []config.Application{{ID: "z", Name: "Z", Executables: []string{"/z"}, DailyMinutes: 2}, {ID: "a", Name: "A", Executables: []string{"/a"}, DailyMinutes: 1}}},
-		"a-user": {DailyDeviceMinutes: 60, AllowedFrom: "00:00", AllowedUntil: "23:59", Applications: []config.Application{{ID: "x", Name: "X", Executables: []string{"/x"}, DailyMinutes: 1}}},
+		"z-user": {DailyDeviceMinutes: 60, ContinuousUseMinutes: 60, BreakMinutes: 10, AllowedFrom: "00:00", AllowedUntil: "23:59", Applications: []config.Application{{ID: "z", Name: "Z", Executables: []string{"/z"}, DailyMinutes: 2}, {ID: "a", Name: "A", Executables: []string{"/a"}, DailyMinutes: 1}}},
+		"a-user": {DailyDeviceMinutes: 60, ContinuousUseMinutes: 60, BreakMinutes: 10, AllowedFrom: "00:00", AllowedUntil: "23:59", Applications: []config.Application{{ID: "x", Name: "X", Executables: []string{"/x"}, DailyMinutes: 1}}},
 	}}
 	s := testService(t, start, cfg, &fakeScanner{})
 	s.state.Users["z-user"] = map[string]int64{"a": 60}
@@ -281,7 +324,7 @@ func TestExecuteReloadIsTransactional(t *testing.T) {
 		t.Fatalf("invalid reload replaced config: %+v", response)
 	}
 
-	valid := map[string]any{"timezone": "UTC", "users": map[string]any{current.Username: map[string]any{"daily_device_minutes": 60, "allowed_from": "00:00", "allowed_until": "23:59", "applications": []any{map[string]any{"id": "new", "name": "New", "executables": []string{"/opt/new"}, "daily_minutes": 5}}}}}
+	valid := map[string]any{"timezone": "UTC", "users": map[string]any{current.Username: map[string]any{"daily_device_minutes": 60, "continuous_use_minutes": 60, "break_minutes": 10, "allowed_from": "00:00", "allowed_until": "23:59", "applications": []any{map[string]any{"id": "new", "name": "New", "executables": []string{"/opt/new"}, "daily_minutes": 5}}}}}
 	data, err := json.Marshal(valid)
 	if err != nil {
 		t.Fatal(err)
@@ -373,24 +416,23 @@ func TestFindApplicationUsesExactCleanPath(t *testing.T) {
 }
 
 func basicConfig() *config.Config {
-	return &config.Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]config.UserConfig{"child": {DailyDeviceMinutes: 60, AllowedFrom: "00:00", AllowedUntil: "23:59", Applications: []config.Application{{ID: "app", Name: "App", Executables: []string{"/opt/app"}, DailyMinutes: 1}}}}}
+	return &config.Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]config.UserConfig{"child": {DailyDeviceMinutes: 60, ContinuousUseMinutes: 60, BreakMinutes: 10, AllowedFrom: "00:00", AllowedUntil: "23:59", Applications: []config.Application{{ID: "app", Name: "App", Executables: []string{"/opt/app"}, DailyMinutes: 1}}}}}
 }
 
 func testService(t *testing.T, start time.Time, cfg *config.Config, scanner proc.Scanner) *Service {
 	t.Helper()
 	return &Service{
-		cfg:             cfg,
-		statePath:       filepath.Join(t.TempDir(), "state", "usage.json"),
-		state:           newState(start.In(cfg.Location()).Format("2006-01-02")),
-		scanner:         scanner,
-		logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
-		uidUsers:        map[uint32]string{1000: "child"},
-		pendingKill:     map[int]pendingTermination{},
-		sessions:        &fakeSessions{},
-		logoutRequested: map[uint32]bool{},
-		lastTick:        start,
-		now:             func() time.Time { return start },
-		loadConfig:      config.Load,
-		authorizePeer:   func(net.Conn) error { return nil },
+		cfg:           cfg,
+		statePath:     filepath.Join(t.TempDir(), "state", "usage.json"),
+		state:         newState(start.In(cfg.Location()).Format("2006-01-02")),
+		scanner:       scanner,
+		logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+		uidUsers:      map[uint32]string{1000: "child"},
+		pendingKill:   map[int]pendingTermination{},
+		sessions:      &fakeSessions{},
+		lastTick:      start,
+		now:           func() time.Time { return start },
+		loadConfig:    config.Load,
+		authorizePeer: func(net.Conn) error { return nil },
 	}
 }
