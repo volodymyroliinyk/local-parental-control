@@ -47,6 +47,11 @@ directory must be root-owned and must not be writable by group or other users.
 Configured executables must resolve to regular, root-owned executable files
 that are not writable by group or other users.
 
+For every controlled user, set `daily_device_minutes` and an allowed local-time
+window with `allowed_from` and `allowed_until` in `HH:MM` format. The end time
+is exclusive. Application rules may be empty when only device-wide controls
+are needed. See the configuration section in the README for validation rules.
+
 ## Install the Debian package
 
 Build the package without sudo:

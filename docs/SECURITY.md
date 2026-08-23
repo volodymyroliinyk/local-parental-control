@@ -21,6 +21,8 @@ process, but they do not make it equivalent to an unprivileged service.
 - systemd removes unnecessary capabilities, address families, namespaces, and
   system calls.
 - AppArmor limits filesystem access and outbound signals.
+- Session termination passes only a validated numeric UID to the fixed
+  `/usr/bin/loginctl terminate-user` command and has a five-second timeout.
 
 ## Limitations
 
@@ -30,9 +32,12 @@ execution can bypass a rule. Snap and Flatpak applications may expose launcher
 or sandbox-specific paths. Restricting those mechanisms is administrator policy
 and is outside this service.
 
-Polling allows an over-limit application to run for up to one poll interval.
+Polling allows an over-limit application or login session to run for up to one poll interval.
 After the configured grace period, `SIGKILL` can cause unsaved application data
-to be lost. Changing the system clock can affect the daily reset.
+to be lost. Session termination can also lose unsaved work and terminates every
+session owned by the configured UID. Device presence is inferred from owned
+processes, so lingering user services can consume device time after logout.
+Changing the system clock can affect the daily reset and allowed-hours checks.
 
 The service is not a substitute for account separation, filesystem
 permissions, application sandboxing, backups, or operating-system updates.

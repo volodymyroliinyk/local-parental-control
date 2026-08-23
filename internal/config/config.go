@@ -24,7 +24,10 @@ type Config struct {
 }
 
 type UserConfig struct {
-	Applications []Application `json:"applications"`
+	DailyDeviceMinutes int           `json:"daily_device_minutes"`
+	AllowedFrom        string        `json:"allowed_from"`
+	AllowedUntil       string        `json:"allowed_until"`
+	Applications       []Application `json:"applications"`
 }
 
 type Application struct {
@@ -168,8 +171,19 @@ func (c *Config) Validate() error {
 		if _, err := user.Lookup(username); err != nil {
 			return fmt.Errorf("user %q does not exist: %w", username, err)
 		}
-		if len(uc.Applications) == 0 {
-			return fmt.Errorf("user %q has no applications", username)
+		if uc.DailyDeviceMinutes < 1 || uc.DailyDeviceMinutes > 1440 {
+			return fmt.Errorf("users.%s.daily_device_minutes must be between 1 and 1440", username)
+		}
+		from, err := parseClock(uc.AllowedFrom)
+		if err != nil {
+			return fmt.Errorf("users.%s.allowed_from: %w", username, err)
+		}
+		until, err := parseClock(uc.AllowedUntil)
+		if err != nil {
+			return fmt.Errorf("users.%s.allowed_until: %w", username, err)
+		}
+		if from >= until {
+			return fmt.Errorf("users.%s allowed_from must be earlier than allowed_until", username)
 		}
 		ids, paths := map[string]bool{}, map[string]bool{}
 		for i, app := range uc.Applications {
@@ -203,6 +217,23 @@ func (c *Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+// AllowedAt reports whether local wall-clock time is within the configured
+// half-open interval [allowed_from, allowed_until).
+func (u UserConfig) AllowedAt(t time.Time) bool {
+	from, _ := parseClock(u.AllowedFrom)
+	until, _ := parseClock(u.AllowedUntil)
+	minute := t.Hour()*60 + t.Minute()
+	return minute >= from && minute < until
+}
+
+func parseClock(value string) (int, error) {
+	parsed, err := time.Parse("15:04", value)
+	if err != nil || len(value) != 5 {
+		return 0, errors.New("must use HH:MM in 24-hour time")
+	}
+	return parsed.Hour()*60 + parsed.Minute(), nil
 }
 
 func (c *Config) ApplicationCount() int {

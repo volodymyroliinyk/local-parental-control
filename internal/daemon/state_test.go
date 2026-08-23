@@ -11,6 +11,7 @@ func TestStateRoundTripAndDailyReset(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state", "usage.json")
 	state := newState("2026-08-19")
 	state.Users["child"] = map[string]int64{"vlc": 42}
+	state.DeviceSeconds["child"] = 84
 	if err := saveState(path, state); err != nil {
 		t.Fatal(err)
 	}
@@ -20,6 +21,9 @@ func TestStateRoundTripAndDailyReset(t *testing.T) {
 	}
 	if loaded.Users["child"]["vlc"] != 42 {
 		t.Fatalf("unexpected state: %+v", loaded)
+	}
+	if loaded.DeviceSeconds["child"] != 84 {
+		t.Fatalf("unexpected device state: %+v", loaded)
 	}
 	reset, err := loadState(path, "2026-08-20")
 	if err != nil {
@@ -39,11 +43,13 @@ func TestStateRoundTripAndDailyReset(t *testing.T) {
 
 func TestLoadStateRejectsUntrustedOrInvalidData(t *testing.T) {
 	tests := map[string]string{
-		"unknown field": `{"date":"2026-08-20","users":{},"extra":true}`,
-		"trailing data": `{"date":"2026-08-20","users":{}} {}`,
-		"invalid date":  `{"date":"not-a-date","users":{}}`,
-		"negative use":  `{"date":"2026-08-20","users":{"child":{"app":-1}}}`,
-		"excessive use": `{"date":"2026-08-20","users":{"child":{"app":86401}}}`,
+		"unknown field":        `{"date":"2026-08-20","users":{},"extra":true}`,
+		"trailing data":        `{"date":"2026-08-20","users":{}} {}`,
+		"invalid date":         `{"date":"not-a-date","users":{}}`,
+		"negative use":         `{"date":"2026-08-20","users":{"child":{"app":-1}}}`,
+		"excessive use":        `{"date":"2026-08-20","users":{"child":{"app":86401}}}`,
+		"negative device use":  `{"date":"2026-08-20","device_seconds":{"child":-1},"users":{}}`,
+		"excessive device use": `{"date":"2026-08-20","device_seconds":{"child":86401},"users":{}}`,
 	}
 	for name, contents := range tests {
 		t.Run(name, func(t *testing.T) {

@@ -16,7 +16,7 @@ func TestLoadAndDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := map[string]any{"users": map[string]any{current.Username: map[string]any{"applications": []any{map[string]any{"id": "browser", "name": "Browser", "executables": []string{"/usr/bin/browser"}, "daily_minutes": 30}}}}}
+	cfg := map[string]any{"users": map[string]any{current.Username: map[string]any{"daily_device_minutes": 120, "allowed_from": "08:00", "allowed_until": "20:00", "applications": []any{map[string]any{"id": "browser", "name": "Browser", "executables": []string{"/usr/bin/browser"}, "daily_minutes": 30}}}}}
 	path := writeConfig(t, cfg)
 	got, err := Load(path)
 	if err != nil {
@@ -38,7 +38,7 @@ func TestLoadRejectsUnknownField(t *testing.T) {
 
 func TestValidateRejectsDuplicateExecutable(t *testing.T) {
 	current, _ := user.Current()
-	c := Config{Timezone: "Local", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]UserConfig{current.Username: {Applications: []Application{
+	c := Config{Timezone: "Local", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]UserConfig{current.Username: {DailyDeviceMinutes: 60, AllowedFrom: "08:00", AllowedUntil: "20:00", Applications: []Application{
 		{ID: "a", Name: "A", Executables: []string{"/usr/bin/x"}, DailyMinutes: 1},
 		{ID: "b", Name: "B", Executables: []string{"/usr/bin/x"}, DailyMinutes: 1},
 	}}}}
@@ -49,7 +49,7 @@ func TestValidateRejectsDuplicateExecutable(t *testing.T) {
 
 func TestLoadRejectsMalformedAndTrailingJSON(t *testing.T) {
 	current := currentUser(t)
-	valid := `{"users":{"` + current.Username + `":{"applications":[{"id":"app","name":"App","executables":["/usr/bin/app"],"daily_minutes":1}]}}}`
+	valid := `{"users":{"` + current.Username + `":{"daily_device_minutes":120,"allowed_from":"08:00","allowed_until":"20:00","applications":[{"id":"app","name":"App","executables":["/usr/bin/app"],"daily_minutes":1}]}}}`
 	tests := map[string]string{
 		"malformed":       `{`,
 		"multiple values": valid + `{}`,
@@ -75,7 +75,7 @@ func TestValidateRejectsInvalidConfiguration(t *testing.T) {
 	username := currentUser(t).Username
 	validApp := Application{ID: "app", Name: "Application", Executables: []string{"/usr/bin/app"}, DailyMinutes: 10}
 	valid := func() Config {
-		return Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]UserConfig{username: {Applications: []Application{validApp}}}}
+		return Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]UserConfig{username: {DailyDeviceMinutes: 120, AllowedFrom: "08:00", AllowedUntil: "20:00", Applications: []Application{validApp}}}}
 	}
 	tests := map[string]func(*Config){
 		"timezone":        func(c *Config) { c.Timezone = "Not/A_Real_Timezone" },
@@ -88,7 +88,16 @@ func TestValidateRejectsInvalidConfiguration(t *testing.T) {
 		"unknown user": func(c *Config) {
 			c.Users = map[string]UserConfig{"local-parental-control-user-that-does-not-exist": {Applications: []Application{validApp}}}
 		},
-		"no applications": func(c *Config) { c.Users[username] = UserConfig{} },
+		"device limit too small": func(c *Config) { u := c.Users[username]; u.DailyDeviceMinutes = 0; c.Users[username] = u },
+		"device limit too large": func(c *Config) { u := c.Users[username]; u.DailyDeviceMinutes = 1441; c.Users[username] = u },
+		"bad allowed from":       func(c *Config) { u := c.Users[username]; u.AllowedFrom = "8:00"; c.Users[username] = u },
+		"bad allowed until":      func(c *Config) { u := c.Users[username]; u.AllowedUntil = "24:00"; c.Users[username] = u },
+		"empty window":           func(c *Config) { u := c.Users[username]; u.AllowedUntil = u.AllowedFrom; c.Users[username] = u },
+		"reversed window": func(c *Config) {
+			u := c.Users[username]
+			u.AllowedFrom, u.AllowedUntil = "20:00", "08:00"
+			c.Users[username] = u
+		},
 		"empty id": func(c *Config) {
 			app := validApp
 			app.ID = ""
@@ -137,9 +146,19 @@ func TestValidateRejectsInvalidConfiguration(t *testing.T) {
 	}
 }
 
+func TestValidateAllowsDeviceOnlyConfiguration(t *testing.T) {
+	username := currentUser(t).Username
+	cfg := Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]UserConfig{
+		username: {DailyDeviceMinutes: 120, AllowedFrom: "08:00", AllowedUntil: "20:00"},
+	}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestValidateAcceptsBoundariesAndHelpers(t *testing.T) {
 	username := currentUser(t).Username
-	cfg := Config{Timezone: "UTC", PollIntervalSeconds: 1, TerminationGraceSeconds: 60, Users: map[string]UserConfig{username: {Applications: []Application{
+	cfg := Config{Timezone: "UTC", PollIntervalSeconds: 1, TerminationGraceSeconds: 60, Users: map[string]UserConfig{username: {DailyDeviceMinutes: 1440, AllowedFrom: "00:00", AllowedUntil: "23:59", Applications: []Application{
 		{ID: "a", Name: "A", Executables: []string{"/usr/bin/a"}, DailyMinutes: 1},
 		{ID: "b", Name: "B", Executables: []string{"/usr/bin/b"}, DailyMinutes: 1440},
 	}}}}
@@ -152,11 +171,15 @@ func TestValidateAcceptsBoundariesAndHelpers(t *testing.T) {
 	if cfg.Location() != time.UTC {
 		t.Fatalf("location = %s", cfg.Location())
 	}
+	userConfig := cfg.Users[username]
+	if !userConfig.AllowedAt(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)) || userConfig.AllowedAt(time.Date(2026, 1, 1, 23, 59, 0, 0, time.UTC)) {
+		t.Fatal("allowed interval boundaries are not half-open")
+	}
 }
 
 func TestValidateRejectsCleanedDuplicateExecutable(t *testing.T) {
 	username := currentUser(t).Username
-	cfg := Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]UserConfig{username: {Applications: []Application{
+	cfg := Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]UserConfig{username: {DailyDeviceMinutes: 10, AllowedFrom: "08:00", AllowedUntil: "20:00", Applications: []Application{
 		{ID: "a", Name: "A", Executables: []string{"/usr/bin/app"}, DailyMinutes: 1},
 		{ID: "b", Name: "B", Executables: []string{"/usr/bin/../bin/app"}, DailyMinutes: 1},
 	}}}}

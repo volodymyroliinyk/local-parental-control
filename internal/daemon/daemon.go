@@ -38,6 +38,8 @@ type Service struct {
 	now                               func() time.Time
 	loadConfig                        func(string) (*config.Config, error)
 	authorizePeer                     func(net.Conn) error
+	sessions                          sessionController
+	logoutRequested                   map[uint32]bool
 }
 
 type pendingTermination struct {
@@ -51,7 +53,7 @@ func New(cfg *config.Config, configPath, statePath, socketPath string, logger *s
 	if err != nil {
 		return nil, err
 	}
-	s := &Service{cfg: cfg, configPath: configPath, statePath: statePath, socketPath: socketPath, state: state, scanner: proc.NewScanner(), logger: logger, pendingKill: make(map[int]pendingTermination), now: time.Now, loadConfig: config.LoadSecure, authorizePeer: authorizeRootPeer, lastTick: now}
+	s := &Service{cfg: cfg, configPath: configPath, statePath: statePath, socketPath: socketPath, state: state, scanner: proc.NewScanner(), logger: logger, pendingKill: make(map[int]pendingTermination), sessions: loginctlController{}, logoutRequested: make(map[uint32]bool), now: time.Now, loadConfig: config.LoadSecure, authorizePeer: authorizeRootPeer, lastTick: now}
 	if err := s.resolveUsers(); err != nil {
 		return nil, err
 	}
@@ -134,6 +136,7 @@ func (s *Service) tick() error {
 		}
 	}()
 	active := make(map[string]map[string]bool)
+	activeUsers := make(map[string]uint32)
 	current := make(map[int]proc.Info, len(processes))
 	for _, p := range processes {
 		current[p.PID] = p
@@ -141,6 +144,7 @@ func (s *Service) tick() error {
 		if !monitored {
 			continue
 		}
+		activeUsers[username] = p.UID
 		app, found := findApplication(s.cfg.Users[username], p.Executable)
 		if !found {
 			continue
@@ -156,6 +160,25 @@ func (s *Service) tick() error {
 		active[username][app.ID] = true
 	}
 	seconds := int64(delta / time.Second)
+	for username, uid := range activeUsers {
+		uc := s.cfg.Users[username]
+		used := s.state.DeviceSeconds[username]
+		blocked := !uc.AllowedAt(now.In(s.cfg.Location())) || used >= int64(uc.DailyDeviceMinutes*60)
+		if !blocked {
+			s.state.DeviceSeconds[username] += seconds
+			blocked = s.state.DeviceSeconds[username] >= int64(uc.DailyDeviceMinutes*60)
+		}
+		if blocked {
+			s.logout(uid, username)
+		} else {
+			delete(s.logoutRequested, uid)
+		}
+	}
+	for uid, username := range s.uidUsers {
+		if _, active := activeUsers[username]; !active {
+			delete(s.logoutRequested, uid)
+		}
+	}
 	for username, apps := range active {
 		for appID := range apps {
 			s.add(username, appID, seconds)
@@ -185,6 +208,18 @@ func (s *Service) tick() error {
 		}
 	}
 	return saveState(s.statePath, s.state)
+}
+
+func (s *Service) logout(uid uint32, username string) {
+	if s.logoutRequested[uid] {
+		return
+	}
+	if err := s.sessions.Terminate(uid); err != nil {
+		s.logger.Warn("user logout failed", "user", username, "uid", uid, "error", err)
+		return
+	}
+	s.logoutRequested[uid] = true
+	s.logger.Warn("device access limit enforced", "user", username, "uid", uid)
 }
 
 func findApplication(uc config.UserConfig, executable string) (config.Application, bool) {
@@ -335,6 +370,7 @@ func (s *Service) execute(req api.Request) api.Response {
 		}
 		// A raised limit or removed rule must cancel previously scheduled kills.
 		s.pendingKill = make(map[int]pendingTermination)
+		s.logoutRequested = make(map[uint32]bool)
 		return api.Response{OK: true, Message: "configuration reloaded"}
 	case "reset":
 		if _, ok := s.cfg.Users[req.User]; !ok {
@@ -342,6 +378,7 @@ func (s *Service) execute(req api.Request) api.Response {
 		}
 		if req.Application == "" {
 			delete(s.state.Users, req.User)
+			delete(s.state.DeviceSeconds, req.User)
 		} else {
 			found := false
 			for _, app := range s.cfg.Users[req.User].Applications {
@@ -358,6 +395,7 @@ func (s *Service) execute(req api.Request) api.Response {
 		}
 		// Reset is an explicit administrative unblock operation.
 		s.pendingKill = make(map[int]pendingTermination)
+		s.logoutRequested = make(map[uint32]bool)
 		if err := saveState(s.statePath, s.state); err != nil {
 			return api.Response{Error: err.Error()}
 		}
@@ -375,7 +413,10 @@ func (s *Service) status() *api.Status {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		us := api.UserStatus{Name: name}
+		uc := s.cfg.Users[name]
+		deviceLimit := int64(uc.DailyDeviceMinutes * 60)
+		deviceUsed := s.state.DeviceSeconds[name]
+		us := api.UserStatus{Name: name, DeviceUsedSeconds: deviceUsed, DeviceLimitSeconds: deviceLimit, AllowedFrom: uc.AllowedFrom, AllowedUntil: uc.AllowedUntil, DeviceBlocked: deviceUsed >= deviceLimit || !uc.AllowedAt(s.now().In(s.cfg.Location()))}
 		apps := append([]config.Application(nil), s.cfg.Users[name].Applications...)
 		sort.Slice(apps, func(i, j int) bool { return apps[i].ID < apps[j].ID })
 		for _, app := range apps {

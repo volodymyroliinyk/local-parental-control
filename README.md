@@ -1,6 +1,6 @@
 # Local Parental Control
 
-Local Parental Control is a service for Ubuntu and other Linux systems. A root daemon measures how long configured users run selected applications and terminates an application after its daily allowance is exhausted. The service has no graphical interface and does not require a network connection or an online account.
+Local Parental Control is a service for Ubuntu and other Linux systems. A root daemon limits a configured user's total daily device time and login hours, and measures how long selected applications run. The service has no graphical interface and does not require a network connection or an online account.
 
 This version controls native processes only.
 
@@ -15,6 +15,8 @@ Detailed documentation:
 - The daemon starts at boot through `systemd` and scans `/proc` at a configurable interval.
 - Processes are attributed by numeric UID and matched against the resolved `/proc/PID/exe` path.
 - An application accrues wall-clock time once while one or more matching processes run.
+- A user's device allowance accrues once while any process owned by that user is present, regardless of the number of processes.
+- Outside the allowed hours or after the daily device allowance is exhausted, the daemon asks `systemd-logind` to terminate all sessions for the user's numeric UID.
 - At the limit, every matching process receives `SIGTERM`; processes still present after the grace period receive `SIGKILL`.
 - Usage is stored in `/var/lib/local-parental-control/usage.json` with atomic writes and resets on the next poll after local midnight.
 - Administrative commands use a root-only Unix socket. The child account cannot reset counters or reload configuration.
@@ -39,6 +41,9 @@ Copy and edit [`example/config.json`](example/config.json). The service reads `/
   "termination_grace_seconds": 15,
   "users": {
     "child": {
+      "daily_device_minutes": 180,
+      "allowed_from": "11:00",
+      "allowed_until": "20:00",
       "applications": [
         {
           "id": "vlc",
@@ -61,13 +66,21 @@ Important details:
   not writable by group or other users.
 - Put all real executables used by an application in the same rule. Wrapper scripts and `.desktop` files are not executable identities.
 - Use `readlink -f /proc/PID/exe` while an application runs to discover its actual executable.
-- A limit is 1–1440 minutes. The polling interval and termination grace period are 1–60 seconds.
+- `daily_device_minutes` is required and must be 1–1440 minutes.
+- `allowed_from` and `allowed_until` are required 24-hour `HH:MM` values. The start is inclusive, the end is exclusive, and the start must be earlier than the end; overnight windows are not supported.
+- Application rules are optional. An application limit is 1–1440 minutes. The polling interval and termination grace period are 1–60 seconds.
 - Unknown JSON fields are rejected to catch misspelled settings.
 
 When a limit is reached, the daemon sends `SIGTERM` first and waits for the
 configured grace period. It then uses `SIGKILL` if the same process is still
 running. Keep enough grace time for applications to save their data; the
 default is 15 seconds.
+
+Device limits are enforced at the next polling iteration with
+`loginctl terminate-user`. This ends every local session belonging to the
+configured numeric UID and may cause unsaved work to be lost. `lpctl reset USER`
+resets both the device and application counters; resetting one application does
+not reset device time.
 
 Snap and Flatpak applications may run through shared launchers or sandbox-specific paths. Confirm their real `/proc/PID/exe` values before adding them. Do not put a shared executable such as `/usr/bin/java` in a rule unless all programs using it should share that limit.
 
@@ -181,7 +194,7 @@ configuration validates. Package upgrades preserve the administrator's config.
 
 The controlled account must not have sudo/root access. Root can always stop or alter this service. Process polling means a newly launched over-limit application can run for up to one polling interval. Executables copied to a different path do not match the original rule, so the child account should not have access to terminals, interpreters, alternative launchers, package installation, AppImage execution, Wine, or virtual machines if those are realistic bypasses. Those OS-level restrictions are administrator policy and are deliberately not applied automatically by this project.
 
-Changing the wall clock can affect the daily reset. The supplied service cannot change the system clock (`ProtectClock=true`), but the administrator must also ensure the child account lacks permission to do so.
+Changing the wall clock can affect the daily reset and allowed-hours checks. The supplied service cannot change the system clock (`ProtectClock=true`), but the administrator must also ensure the child account lacks permission to do so. Device presence is inferred from processes owned by the configured UID; user services configured to linger after logout can continue consuming the allowance and can cause repeated logout enforcement.
 
 ## License
 

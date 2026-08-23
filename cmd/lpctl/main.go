@@ -115,6 +115,11 @@ func printStatus(status *api.Status) {
 	fmt.Printf("Date: %s\n\n", status.Date)
 	for _, user := range status.Users {
 		fmt.Printf("User: %s\n", user.Name)
+		state := "ALLOWED"
+		if user.DeviceBlocked {
+			state = "BLOCKED"
+		}
+		fmt.Printf("  Device                   %6.1f / %-6.1f min  %s (%s-%s)\n", float64(user.DeviceUsedSeconds)/60, float64(user.DeviceLimitSeconds)/60, state, user.AllowedFrom, user.AllowedUntil)
 		for _, app := range user.Applications {
 			state := "ALLOWED"
 			if app.Blocked {

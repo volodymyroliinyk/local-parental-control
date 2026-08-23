@@ -4,6 +4,9 @@
   "termination_grace_seconds": 15,
   "users": {
     "child": {
+      "daily_device_minutes": 180,
+      "allowed_from": "11:00",
+      "allowed_until": "20:00",
       "applications": [
         {
           "id": "firefox",

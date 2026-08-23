@@ -18,8 +18,13 @@ type Status struct {
 	Users []UserStatus `json:"users"`
 }
 type UserStatus struct {
-	Name         string              `json:"name"`
-	Applications []ApplicationStatus `json:"applications"`
+	Name               string              `json:"name"`
+	DeviceUsedSeconds  int64               `json:"device_used_seconds"`
+	DeviceLimitSeconds int64               `json:"device_limit_seconds"`
+	AllowedFrom        string              `json:"allowed_from"`
+	AllowedUntil       string              `json:"allowed_until"`
+	DeviceBlocked      bool                `json:"device_blocked"`
+	Applications       []ApplicationStatus `json:"applications"`
 }
 type ApplicationStatus struct {
 	ID           string `json:"id"`

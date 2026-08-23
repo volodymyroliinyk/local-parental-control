@@ -9,6 +9,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- Per-user daily device allowances and allowed login hours, enforced through systemd-logind session termination.
+
 - Separate installation, development, and security documentation for administrators and contributors.
 
 - Release script for verification, artifact builds, Git tags, branch updates, and GitHub Releases.

@@ -5,7 +5,7 @@ Priority: optional
 Architecture: @ARCHITECTURE@
 Maintainer: Local Parental Control maintainers
 Depends: systemd, apparmor
-Description: Local application time limits for Linux users
- A local-only root daemon that measures application usage for configured
- users and terminates applications after their daily allowance is exhausted.
+Description: Local device and application time limits for Linux users
+ A local-only root daemon that restricts login hours and daily device time,
+ measures configured application usage, and enforces the configured limits.
  Administration is performed through the lpctl command-line tool.

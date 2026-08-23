@@ -15,12 +15,13 @@ import (
 const maxStateSize = 4 << 20
 
 type usageState struct {
-	Date  string                      `json:"date"`
-	Users map[string]map[string]int64 `json:"users"`
+	Date          string                      `json:"date"`
+	DeviceSeconds map[string]int64            `json:"device_seconds"`
+	Users         map[string]map[string]int64 `json:"users"`
 }
 
 func newState(date string) usageState {
-	return usageState{Date: date, Users: make(map[string]map[string]int64)}
+	return usageState{Date: date, DeviceSeconds: make(map[string]int64), Users: make(map[string]map[string]int64)}
 }
 
 func loadState(path, date string) (usageState, error) {
@@ -60,11 +61,19 @@ func loadState(path, date string) (usageState, error) {
 			}
 		}
 	}
+	for username, seconds := range state.DeviceSeconds {
+		if seconds < 0 || seconds > 86400 {
+			return usageState{}, fmt.Errorf("invalid device usage for %q: %d", username, seconds)
+		}
+	}
 	if state.Date != date {
 		return newState(date), nil
 	}
 	if state.Users == nil {
 		state.Users = make(map[string]map[string]int64)
+	}
+	if state.DeviceSeconds == nil {
+		state.DeviceSeconds = make(map[string]int64)
 	}
 	return state, nil
 }
