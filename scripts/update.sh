@@ -14,6 +14,18 @@ fi
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 build_dir="${project_dir}/bin"
 
+wait_for_daemon() {
+  local deadline=$((SECONDS + 10))
+  until /usr/local/sbin/lpctl status >/dev/null 2>&1; do
+    if (( SECONDS >= deadline )); then
+      echo "Service started but the control socket did not become ready." >&2
+      echo "Check: systemctl status local-parental-control.service" >&2
+      return 1
+    fi
+    sleep 0.1
+  done
+}
+
 if ! command -v apparmor_parser >/dev/null 2>&1; then
   echo "AppArmor is required. Install the apparmor package first." >&2
   exit 1
@@ -47,4 +59,5 @@ systemctl daemon-reload
 /usr/local/sbin/lpctl validate
 systemctl restart local-parental-control.service
 systemctl is-active --quiet local-parental-control.service
+wait_for_daemon
 echo "Update complete; configuration and usage data were preserved."

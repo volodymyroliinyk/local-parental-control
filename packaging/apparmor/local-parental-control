@@ -6,7 +6,10 @@ profile local-parental-control /usr/{,local/}sbin/local-parental-control flags=(
   capability kill,
   capability sys_ptrace,
 
+  ptrace (read),
+
   /etc/local-parental-control/config.json r,
+  /etc/passwd r,
   /proc/ r,
   /proc/[0-9]*/status r,
   /proc/[0-9]*/stat r,

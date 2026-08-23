@@ -25,6 +25,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 - Installation and update scripts require binaries built without root privileges and verify their ownership and permissions before installation.
 
+### Fixed
+
+- Builds now produce installer-safe binary permissions, AppArmor permits the process inspection required for executable attribution, and installation waits for the control socket to become ready.
+
 ## [0.1.0] - 2026-08-20
 
 ### Added
