@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Time limits
+Comment=Show remaining device and application time
+Exec=local-parental-control-indicator
+TryExec=local-parental-control-indicator
+Icon=preferences-system-time
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=5

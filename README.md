@@ -1,6 +1,6 @@
 # Local Parental Control
 
-Local Parental Control is a service for Ubuntu and other Linux systems. A root daemon limits a configured user's total daily device time and login hours, and measures how long selected applications run. The service has no graphical interface and does not require a network connection or an online account.
+Local Parental Control is a service for Ubuntu and other Linux systems. A root daemon limits a configured user's total daily device time and login hours, and measures how long selected applications run. A quiet panel indicator shows the controlled user how much time remains. The service does not require a network connection or an online account.
 
 This version controls native processes only.
 
@@ -20,12 +20,13 @@ Detailed documentation:
 - At the limit, every matching process receives `SIGTERM`; processes still present after the grace period receive `SIGKILL`.
 - Usage is stored in `/var/lib/local-parental-control/usage.json` with atomic writes and resets on the next poll after local midnight.
 - Administrative commands use a root-only Unix socket. The child account cannot reset counters or reload configuration.
+- A read-only desktop indicator starts automatically for configured graphical users. It shows time in the panel and tooltip without notifications, sounds, or automatic windows.
 
 The service controls configured applications; it is not a general application allowlist. This avoids breaking GNOME, D-Bus, PipeWire, portals, and other essential desktop-session processes.
 
 ## Requirements
 
-- Ubuntu or a comparable Linux distribution with `systemd` and `/proc`
+- Ubuntu or a comparable Linux distribution with `systemd`, `/proc`, and a StatusNotifier-compatible desktop panel
 - Go 1.26 or newer to build
 - root access for installation and administration
 - a non-administrator account for the controlled user
@@ -132,6 +133,10 @@ sudo systemctl enable --now local-parental-control.service
 
 Existing `/etc/local-parental-control/config.json` files are preserved during upgrades.
 
+After installation or update, sign out and sign in to the controlled account,
+or reboot once. The panel indicator starts automatically; no per-user setup is
+required. It exits quietly in accounts that are not listed in the configuration.
+
 ## Administration
 
 ```text
@@ -222,7 +227,8 @@ LPC_VERSION=0.1.0 ./scripts/build-deb.sh
 sudo apt install ./dist/local-parental-control_0.1.0_amd64.deb
 ```
 
-The package installs the daemon and CLI in `/usr/sbin`, the systemd unit in
+The package installs the daemon and CLI in `/usr/sbin`, the user indicator in
+`/usr/bin`, its XDG autostart entry, and the systemd unit in
 `/lib/systemd/system`, and a dpkg-managed configuration in
 `/etc/local-parental-control/config.json`. It also installs an enforcing
 AppArmor profile. If the example username does not

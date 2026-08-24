@@ -386,6 +386,108 @@ func TestAdministrativeSocketPermissionsAndRequest(t *testing.T) {
 	}
 }
 
+func TestStatusSocketReturnsOnlyPeerUser(t *testing.T) {
+	s := testService(t, time.Now(), basicConfig(), &fakeScanner{})
+	s.cfg.Users["other"] = s.cfg.Users["child"]
+	s.statusSocketPath = filepath.Join(t.TempDir(), "status", "status.sock")
+	s.uidUsers = map[uint32]string{1000: "child"}
+	s.peerUID = func(net.Conn) (uint32, error) { return 1000, nil }
+	listener, err := s.listenStatus()
+	if err != nil {
+		if errors.Is(err, syscall.EPERM) {
+			t.Skipf("Unix sockets are not permitted in this test sandbox: %v", err)
+		}
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	info, err := os.Stat(s.statusSocketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0666 {
+		t.Fatalf("status socket mode = %o", info.Mode().Perm())
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		conn, acceptErr := listener.Accept()
+		if acceptErr == nil {
+			s.handleStatus(conn)
+		}
+	}()
+	conn, err := net.Dial("unix", s.statusSocketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response api.Response
+	if err := json.NewDecoder(conn).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
+	<-done
+	if !response.OK || response.Status == nil || len(response.Status.Users) != 1 || response.Status.Users[0].Name != "child" {
+		t.Fatalf("unexpected status response: %+v", response)
+	}
+}
+
+func TestUnixPeerUID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "peer.sock")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		if errors.Is(err, syscall.EPERM) {
+			t.Skipf("Unix sockets are not permitted in this test sandbox: %v", err)
+		}
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	result := make(chan uint32, 1)
+	errorsChannel := make(chan error, 1)
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			errorsChannel <- acceptErr
+			return
+		}
+		defer conn.Close()
+		uid, peerErr := unixPeerUID(conn)
+		if peerErr != nil {
+			errorsChannel <- peerErr
+			return
+		}
+		result <- uid
+	}()
+	conn, err := net.Dial("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	select {
+	case err := <-errorsChannel:
+		t.Fatal(err)
+	case uid := <-result:
+		if uid != uint32(os.Getuid()) {
+			t.Fatalf("peer UID = %d, want %d", uid, os.Getuid())
+		}
+	}
+}
+
+func TestStatusSocketRejectsUnconfiguredPeer(t *testing.T) {
+	server, client := net.Pipe()
+	s := testService(t, time.Now(), basicConfig(), &fakeScanner{})
+	s.peerUID = func(net.Conn) (uint32, error) { return 9999, nil }
+	done := make(chan struct{})
+	go func() { s.handleStatus(server); close(done) }()
+	var response api.Response
+	if err := json.NewDecoder(client).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	client.Close()
+	<-done
+	if response.OK || response.Error != "current user is not configured" || response.Status != nil {
+		t.Fatalf("unexpected status response: %+v", response)
+	}
+}
+
 func TestHandleRejectsUnknownRequestField(t *testing.T) {
 	server, client := net.Pipe()
 	s := testService(t, time.Now(), basicConfig(), &fakeScanner{})
@@ -434,5 +536,6 @@ func testService(t *testing.T, start time.Time, cfg *config.Config, scanner proc
 		now:           func() time.Time { return start },
 		loadConfig:    config.Load,
 		authorizePeer: func(net.Conn) error { return nil },
+		peerUID:       func(net.Conn) (uint32, error) { return 1000, nil },
 	}
 }

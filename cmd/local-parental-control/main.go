@@ -23,6 +23,7 @@ func main() {
 	configPath := fs.String("config", config.DefaultPath, "path to configuration file")
 	statePath := fs.String("state", daemon.DefaultStatePath, "path to persistent usage state")
 	socketPath := fs.String("socket", daemon.DefaultSocketPath, "path to administrative Unix socket")
+	statusSocketPath := fs.String("status-socket", daemon.DefaultStatusSocketPath, "path to read-only user status Unix socket")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	_ = fs.Parse(os.Args[1:])
 	if *showVersion {
@@ -37,7 +38,7 @@ func main() {
 		os.Exit(invalidConfigurationExitCode)
 	}
 
-	service, err := daemon.New(cfg, *configPath, *statePath, *socketPath, logger)
+	service, err := daemon.New(cfg, *configPath, *statePath, *socketPath, *statusSocketPath, logger)
 	if err != nil {
 		logger.Error("cannot initialize service", "error", err)
 		os.Exit(1)

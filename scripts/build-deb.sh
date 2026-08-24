@@ -27,6 +27,8 @@ OUTPUT_DIR="${build_dir}" LPC_VERSION="${package_version}" "${project_dir}/scrip
 
 install -D -m 0755 "${build_dir}/local-parental-control" "${staging_dir}/usr/sbin/local-parental-control"
 install -D -m 0755 "${build_dir}/lpctl" "${staging_dir}/usr/sbin/lpctl"
+install -D -m 0755 "${build_dir}/local-parental-control-indicator" "${staging_dir}/usr/bin/local-parental-control-indicator"
+install -D -m 0644 "${project_dir}/packaging/local-parental-control-indicator.desktop" "${staging_dir}/etc/xdg/autostart/local-parental-control-indicator.desktop"
 install -D -m 0644 "${project_dir}/packaging/debian/local-parental-control.service" "${staging_dir}/lib/systemd/system/local-parental-control.service"
 install -D -m 0644 "${project_dir}/packaging/apparmor/local-parental-control" "${staging_dir}/etc/apparmor.d/local-parental-control"
 install -D -m 0600 "${project_dir}/example/config.json" "${staging_dir}/etc/local-parental-control/config.json"

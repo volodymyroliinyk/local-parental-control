@@ -13,7 +13,7 @@ Install the required system packages:
 
 ```bash
 sudo apt update
-sudo apt install apparmor
+sudo apt install apparmor gnome-shell-extension-appindicator
 ```
 
 Install a native Go 1.26 or newer toolchain when building from source and
@@ -29,10 +29,10 @@ Build as the administrator account. Do not run the build with sudo:
 sudo ./scripts/install.sh
 ```
 
-The installer verifies that both binaries are regular files owned by the
+The installer verifies that all binaries are regular files owned by the
 administrator who invoked sudo and that group or other users cannot modify
-them. It then installs the binaries, systemd unit, AppArmor profile, and
-documentation.
+them. It then installs the daemon, CLI, child indicator, XDG autostart entry,
+systemd unit, AppArmor profile, and documentation.
 
 Discover application paths and edit the installed configuration:
 
@@ -66,6 +66,23 @@ sudo apt install ./dist/local-parental-control_0.1.0_amd64.deb
 If the example user does not exist or its configuration is otherwise invalid,
 the package remains installed but the service stays disabled. Edit the
 configuration, validate it, and start the service as shown above.
+
+## Child indicator
+
+After a successful installation or update, reboot or sign out and sign in to
+the controlled account. A small time indicator then appears in the desktop
+panel automatically. It shows remaining device time directly in the panel;
+hovering over it shows the break and configured application allowances.
+
+The indicator is intentionally quiet: it sends no notifications, plays no
+sounds, and opens no windows. It has no administration controls. The daemon
+identifies the local connection by numeric UID and returns only that user's
+status. The indicator exits silently for users absent from the configuration.
+
+On Ubuntu GNOME, the panel requires `gnome-shell-extension-appindicator`,
+which is installed by the prerequisite command above and recommended by the
+Debian package. If the indicator is absent, first sign out and back in, then
+confirm that this package and the service are active.
 
 ## Add or change an application
 
@@ -120,10 +137,11 @@ sudo ./scripts/update.sh
 ```
 
 The update preserves configuration and usage state. Confirm service health
-afterward with `sudo lpctl status`. If the existing configuration is invalid
-for the new version, the updater installs only the new `lpctl`, leaves the
-installed and running daemon and its service files unchanged, and exits with
-status 2. Use `sudo lpctl discover KEYWORD` to get configuration-ready paths,
+afterward with `sudo lpctl status`. The updated indicator starts on the next
+login; no child-account command is needed. If the existing configuration is
+invalid for the new version, the updater installs only the new `lpctl`, leaves
+the installed and running daemon and its service files unchanged, and exits
+with status 2. Use `sudo lpctl discover KEYWORD` to get configuration-ready paths,
 correct the configuration, and run:
 
 ```bash

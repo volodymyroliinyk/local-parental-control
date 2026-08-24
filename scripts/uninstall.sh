@@ -13,6 +13,8 @@ fi
 rm -f /etc/systemd/system/local-parental-control.service
 rm -f /etc/apparmor.d/local-parental-control
 rm -f /usr/local/sbin/local-parental-control /usr/local/sbin/lpctl
+rm -f /usr/local/bin/local-parental-control-indicator
+rm -f /etc/xdg/autostart/local-parental-control-indicator.desktop
 systemctl daemon-reload
 
 echo "Service and binaries removed. Configuration and usage data were preserved."

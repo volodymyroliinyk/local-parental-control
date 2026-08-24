@@ -24,11 +24,13 @@ import (
 
 const DefaultStatePath = "/var/lib/local-parental-control/usage.json"
 const DefaultSocketPath = "/run/local-parental-control/control.sock"
+const DefaultStatusSocketPath = "/run/local-parental-control/status.sock"
 
 type Service struct {
 	mu                                sync.RWMutex
 	cfg                               *config.Config
 	configPath, statePath, socketPath string
+	statusSocketPath                  string
 	state                             usageState
 	scanner                           proc.Scanner
 	logger                            *slog.Logger
@@ -38,6 +40,7 @@ type Service struct {
 	now                               func() time.Time
 	loadConfig                        func(string) (*config.Config, error)
 	authorizePeer                     func(net.Conn) error
+	peerUID                           func(net.Conn) (uint32, error)
 	sessions                          sessionController
 }
 
@@ -46,13 +49,13 @@ type pendingTermination struct {
 	process  proc.Info
 }
 
-func New(cfg *config.Config, configPath, statePath, socketPath string, logger *slog.Logger) (*Service, error) {
+func New(cfg *config.Config, configPath, statePath, socketPath, statusSocketPath string, logger *slog.Logger) (*Service, error) {
 	now := time.Now()
 	state, err := loadState(statePath, now.In(cfg.Location()).Format("2006-01-02"))
 	if err != nil {
 		return nil, err
 	}
-	s := &Service{cfg: cfg, configPath: configPath, statePath: statePath, socketPath: socketPath, state: state, scanner: proc.NewScanner(), logger: logger, pendingKill: make(map[int]pendingTermination), sessions: loginctlController{}, now: time.Now, loadConfig: config.LoadSecure, authorizePeer: authorizeRootPeer, lastTick: now}
+	s := &Service{cfg: cfg, configPath: configPath, statePath: statePath, socketPath: socketPath, statusSocketPath: statusSocketPath, state: state, scanner: proc.NewScanner(), logger: logger, pendingKill: make(map[int]pendingTermination), sessions: loginctlController{}, now: time.Now, loadConfig: config.LoadSecure, authorizePeer: authorizeRootPeer, peerUID: unixPeerUID, lastTick: now}
 	if err := s.resolveUsers(); err != nil {
 		return nil, err
 	}
@@ -82,8 +85,14 @@ func (s *Service) Run(ctx context.Context) error {
 		return err
 	}
 	defer func() { listener.Close(); os.Remove(s.socketPath) }()
+	statusListener, err := s.listenStatus()
+	if err != nil {
+		return err
+	}
+	defer func() { statusListener.Close(); os.Remove(s.statusSocketPath) }()
 	go s.serve(ctx, listener)
-	s.logger.Info("local parental control started", "users", len(s.cfg.Users), "socket", s.socketPath)
+	go s.serveStatus(ctx, statusListener)
+	s.logger.Info("local parental control started", "users", len(s.cfg.Users), "socket", s.socketPath, "status_socket", s.statusSocketPath)
 	timer := time.NewTimer(time.Duration(s.cfg.PollIntervalSeconds) * time.Second)
 	defer timer.Stop()
 	for {
@@ -268,10 +277,10 @@ func (s *Service) add(user, app string, seconds int64) {
 }
 
 func (s *Service) listen() (net.Listener, error) {
-	if err := os.MkdirAll(filepath.Dir(s.socketPath), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.socketPath), 0755); err != nil {
 		return nil, err
 	}
-	if err := validatePrivateDirectory(filepath.Dir(s.socketPath)); err != nil {
+	if err := validateSocketDirectory(filepath.Dir(s.socketPath)); err != nil {
 		return nil, err
 	}
 	if err := os.Remove(s.socketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -286,6 +295,40 @@ func (s *Service) listen() (net.Listener, error) {
 		return nil, err
 	}
 	return listener, nil
+}
+
+func (s *Service) listenStatus() (net.Listener, error) {
+	directory := filepath.Dir(s.statusSocketPath)
+	if err := os.MkdirAll(directory, 0755); err != nil {
+		return nil, err
+	}
+	if err := validateSocketDirectory(directory); err != nil {
+		return nil, err
+	}
+	if err := os.Remove(s.statusSocketPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	listener, err := net.Listen("unix", s.statusSocketPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(s.statusSocketPath, 0666); err != nil {
+		listener.Close()
+		return nil, err
+	}
+	return listener, nil
+}
+
+func validateSocketDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != uint32(os.Geteuid()) || !info.IsDir() || info.Mode().Perm() != 0755 {
+		return fmt.Errorf("socket directory %s must be owned by UID %d with mode 0755", path, os.Geteuid())
+	}
+	return nil
 }
 
 func (s *Service) serve(ctx context.Context, listener net.Listener) {
@@ -312,6 +355,46 @@ func (s *Service) serve(ctx context.Context, listener net.Listener) {
 	}
 }
 
+func (s *Service) serveStatus(ctx context.Context, listener net.Listener) {
+	go func() { <-ctx.Done(); listener.Close() }()
+	clients := make(chan struct{}, 16)
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			if ctx.Err() == nil {
+				s.logger.Error("status socket", "error", err)
+			}
+			return
+		}
+		select {
+		case clients <- struct{}{}:
+			go func() {
+				defer func() { <-clients }()
+				s.handleStatus(conn)
+			}()
+		default:
+			conn.Close()
+		}
+	}
+}
+
+func (s *Service) handleStatus(conn net.Conn) {
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	uid, err := s.peerUID(conn)
+	if err != nil {
+		return
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	username, ok := s.uidUsers[uid]
+	if !ok {
+		_ = json.NewEncoder(conn).Encode(api.Response{Error: "current user is not configured"})
+		return
+	}
+	_ = json.NewEncoder(conn).Encode(api.Response{OK: true, Status: s.statusForUsers([]string{username})})
+}
+
 func (s *Service) handle(conn net.Conn) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
@@ -331,28 +414,39 @@ func (s *Service) handle(conn net.Conn) {
 }
 
 func authorizeRootPeer(conn net.Conn) error {
+	uid, err := unixPeerUID(conn)
+	if err != nil {
+		return err
+	}
+	if uid != 0 {
+		return errors.New("administrative client must run as root")
+	}
+	return nil
+}
+
+func unixPeerUID(conn net.Conn) (uint32, error) {
 	unixConn, ok := conn.(*net.UnixConn)
 	if !ok {
-		return errors.New("administrative connection is not a Unix socket")
+		return 0, errors.New("connection is not a Unix socket")
 	}
 	raw, err := unixConn.SyscallConn()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	var credentials *syscall.Ucred
 	var socketErr error
 	if err := raw.Control(func(fd uintptr) {
 		credentials, socketErr = syscall.GetsockoptUcred(int(fd), syscall.SOL_SOCKET, syscall.SO_PEERCRED)
 	}); err != nil {
-		return err
+		return 0, err
 	}
 	if socketErr != nil {
-		return socketErr
+		return 0, socketErr
 	}
-	if credentials == nil || credentials.Uid != 0 {
-		return errors.New("administrative client must run as root")
+	if credentials == nil {
+		return 0, errors.New("missing Unix peer credentials")
 	}
-	return nil
+	return credentials.Uid, nil
 }
 
 func (s *Service) execute(req api.Request) api.Response {
@@ -411,12 +505,16 @@ func (s *Service) execute(req api.Request) api.Response {
 }
 
 func (s *Service) status() *api.Status {
-	result := &api.Status{Date: s.state.Date}
 	names := make([]string, 0, len(s.cfg.Users))
 	for name := range s.cfg.Users {
 		names = append(names, name)
 	}
 	sort.Strings(names)
+	return s.statusForUsers(names)
+}
+
+func (s *Service) statusForUsers(names []string) *api.Status {
+	result := &api.Status{Date: s.state.Date}
 	for _, name := range names {
 		uc := s.cfg.Users[name]
 		deviceLimit := int64(uc.DailyDeviceMinutes * 60)

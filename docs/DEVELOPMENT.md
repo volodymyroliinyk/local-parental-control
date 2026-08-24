@@ -6,16 +6,21 @@
 - Linux on amd64 or arm64 for the production daemon
 - Bash, systemd tools, AppArmor tools, and `dpkg-deb` for packaging checks
 
-The project uses the Go standard library and builds with `CGO_ENABLED=0`.
+The daemon and CLI use the Go standard library. The desktop indicator uses the
+pure-Go `godbus/dbus` client to implement the Linux StatusNotifier protocol
+without GTK, CGO, or a desktop-toolkit runtime dependency. All binaries build
+with `CGO_ENABLED=0`.
 Generated files under `bin/` and `dist/` are not committed.
 
 ## Repository layout
 
 - `cmd/local-parental-control`: daemon entry point
 - `cmd/lpctl`: administrative CLI
+- `cmd/local-parental-control-indicator`: read-only desktop panel indicator
 - `internal/config`: configuration parsing and production security validation
 - `internal/process`: `/proc` scanning and pidfd-based signaling
 - `internal/daemon`: accounting, enforcement, persistent state, and Unix socket
+- `internal/indicator`: user-status client and presentation formatting
 - `packaging`: systemd, AppArmor, and Debian package files
 - `scripts`: build, installation, changelog, update, and release workflows
 

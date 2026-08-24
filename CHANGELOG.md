@@ -9,6 +9,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- A quiet read-only panel indicator now starts automatically for configured desktop users and shows their remaining device, break, and application time without notifications.
+
 - The lpctl discover command returns configuration-ready ELF paths from native packages and installed Snap packages.
 
 - Configurable mandatory screen breaks with a 60-minute use and 10-minute break default.

@@ -16,6 +16,9 @@ process, but they do not make it equivalent to an unprivileged service.
 - Production configuration and executable metadata are validated before use.
 - Usage state and the administrative socket are root-private.
 - Administrative socket clients must present UID 0 through `SO_PEERCRED`.
+- A separate read-only status socket uses `SO_PEERCRED` to return only the
+  connecting configured user's status. It accepts no commands and exposes no
+  other user's counters or configuration.
 - Process signals use pidfds to avoid numeric PID reuse races.
 - Input sizes and concurrent administrative connections are limited.
 - systemd removes unnecessary capabilities, address families, namespaces, and
@@ -46,6 +49,8 @@ clock can affect the daily reset, allowed-hours checks, and break deadlines.
 
 The service is not a substitute for account separation, filesystem
 permissions, application sandboxing, backups, or operating-system updates.
+Desktop tooltip contents are visible to the controlled user by design; they do
+not include executable paths or another user's status.
 
 ## Reporting a security issue
 

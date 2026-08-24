@@ -29,7 +29,7 @@ if [[ -z ${SUDO_UID:-} || ${SUDO_UID} -eq 0 ]]; then
   echo "Run this script through sudo from the administrator account." >&2
   exit 1
 fi
-for binary in local-parental-control lpctl; do
+for binary in local-parental-control lpctl local-parental-control-indicator; do
   path="${build_dir}/${binary}"
   if [[ ! -f ${path} || -L ${path} || $(stat -c %u -- "${path}") -ne ${SUDO_UID} || -n $(find "${path}" -perm /022 -print -quit) ]]; then
     echo "Unsafe or missing ${path}. Run ./scripts/build.sh without sudo first." >&2
@@ -39,6 +39,8 @@ done
 
 install -D -o root -g root -m 0755 "${build_dir}/local-parental-control" /usr/local/sbin/local-parental-control
 install -D -o root -g root -m 0755 "${build_dir}/lpctl" /usr/local/sbin/lpctl
+install -D -o root -g root -m 0755 "${build_dir}/local-parental-control-indicator" /usr/local/bin/local-parental-control-indicator
+install -D -o root -g root -m 0644 "${project_dir}/packaging/local-parental-control-indicator.desktop" /etc/xdg/autostart/local-parental-control-indicator.desktop
 install -D -o root -g root -m 0644 "${project_dir}/packaging/local-parental-control.service" /etc/systemd/system/local-parental-control.service
 install -D -o root -g root -m 0644 "${project_dir}/packaging/apparmor/local-parental-control" /etc/apparmor.d/local-parental-control
 install -D -o root -g root -m 0644 "${project_dir}/README.md" /usr/share/doc/local-parental-control/README.md
