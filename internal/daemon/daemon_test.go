@@ -28,8 +28,10 @@ type fakeScanner struct {
 }
 
 type fakeSessions struct {
-	uids []uint32
-	err  error
+	uids     []uint32
+	err      error
+	unlocked bool
+	stateErr error
 }
 
 func (f *fakeSessions) Lock(uid uint32) error {
@@ -38,6 +40,10 @@ func (f *fakeSessions) Lock(uid uint32) error {
 	}
 	f.uids = append(f.uids, uid)
 	return nil
+}
+
+func (f *fakeSessions) Unlocked(uint32) (bool, error) {
+	return f.unlocked, f.stateErr
 }
 
 func (f *fakeScanner) Scan() ([]proc.Info, error) { return f.processes, f.scanErr }
@@ -55,7 +61,7 @@ func TestTickCountsApplicationOnceAndEnforcesLimit(t *testing.T) {
 	now := start
 	cfg := &config.Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]config.UserConfig{"child": {DailyDeviceMinutes: 60, ContinuousUseMinutes: 60, BreakMinutes: 10, AllowedFrom: "00:00", AllowedUntil: "23:59", Applications: []config.Application{{ID: "game", Name: "Game", Executables: []string{"/opt/game"}, DailyMinutes: 1}}}}}
 	fake := &fakeScanner{processes: []proc.Info{{PID: 1, UID: 1000, Executable: "/opt/game"}, {PID: 2, UID: 1000, Executable: "/opt/game"}}}
-	s := &Service{cfg: cfg, statePath: filepath.Join(t.TempDir(), "state", "state.json"), state: newState("2026-08-19"), scanner: fake, logger: slog.New(slog.NewTextHandler(io.Discard, nil)), uidUsers: map[uint32]string{1000: "child"}, pendingKill: map[int]pendingTermination{}, lastTick: start, now: func() time.Time { return now }}
+	s := &Service{cfg: cfg, statePath: filepath.Join(t.TempDir(), "state", "state.json"), state: newState("2026-08-19"), scanner: fake, logger: slog.New(slog.NewTextHandler(io.Discard, nil)), uidUsers: map[uint32]string{1000: "child"}, pendingKill: map[int]pendingTermination{}, sessions: &fakeSessions{unlocked: true}, lastTick: start, now: func() time.Time { return now }}
 	now = now.Add(2 * time.Second)
 	if err := s.tick(); err != nil {
 		t.Fatal(err)
@@ -119,6 +125,56 @@ func TestTickCountsDeviceOnceAndLocksAtDailyLimit(t *testing.T) {
 	}
 	if len(sessions.uids) != 2 {
 		t.Fatalf("lock was not reinforced = %v", sessions.uids)
+	}
+}
+
+func TestTickPausesUsageWhileSessionIsLocked(t *testing.T) {
+	start := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	now := start.Add(2 * time.Second)
+	fake := &fakeScanner{processes: []proc.Info{{PID: 1, UID: 1000, Executable: "/opt/app"}}}
+	s := testService(t, start, basicConfig(), fake)
+	sessions := s.sessions.(*fakeSessions)
+	sessions.unlocked = false
+	s.state.DeviceSeconds["child"] = 30
+	s.state.Users["child"] = map[string]int64{"app": 30}
+	s.now = func() time.Time { return now }
+
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.state.DeviceSeconds["child"]; got != 30 {
+		t.Fatalf("device usage while locked = %d", got)
+	}
+	if got := s.used("child", "app"); got != 30 {
+		t.Fatalf("application usage while locked = %d", got)
+	}
+
+	sessions.unlocked = true
+	now = now.Add(2 * time.Second)
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.state.DeviceSeconds["child"]; got != 32 {
+		t.Fatalf("device usage after unlock = %d, want 32", got)
+	}
+	if got := s.used("child", "app"); got != 32 {
+		t.Fatalf("application usage after unlock = %d, want 32", got)
+	}
+}
+
+func TestTickPausesUsageWhenSessionStateIsUnavailable(t *testing.T) {
+	start := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	now := start.Add(2 * time.Second)
+	fake := &fakeScanner{processes: []proc.Info{{PID: 1, UID: 1000, Executable: "/opt/app"}}}
+	s := testService(t, start, basicConfig(), fake)
+	s.sessions.(*fakeSessions).stateErr = errors.New("logind unavailable")
+	s.now = func() time.Time { return now }
+
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if s.state.DeviceSeconds["child"] != 0 || s.used("child", "app") != 0 {
+		t.Fatalf("usage changed without reliable session state: %+v", s.state)
 	}
 }
 
@@ -531,7 +587,7 @@ func testService(t *testing.T, start time.Time, cfg *config.Config, scanner proc
 		logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		uidUsers:      map[uint32]string{1000: "child"},
 		pendingKill:   map[int]pendingTermination{},
-		sessions:      &fakeSessions{},
+		sessions:      &fakeSessions{unlocked: true},
 		lastTick:      start,
 		now:           func() time.Time { return start },
 		loadConfig:    config.Load,

@@ -51,8 +51,12 @@ that are not writable by group or other users.
 For every controlled user, set `daily_device_minutes` and an allowed local-time
 window with `allowed_from` and `allowed_until` in `HH:MM` format. The end time
 is exclusive. `continuous_use_minutes` and `break_minutes` configure mandatory
-breaks and default to 60 and 10 minutes when omitted. Application rules may be empty when only device-wide controls
-are needed. See the configuration section in the README for validation rules.
+breaks and default to 60 and 10 minutes when omitted. Device and application
+usage is counted only while the user's graphical session is active and
+unlocked. Locking the screen pauses usage; unlocking it resumes the saved
+counters until the next local calendar day. Shutdown time is not counted.
+Application rules may be empty when only device-wide controls are needed. See
+the configuration section in the README for validation rules.
 
 ## Install the Debian package
 

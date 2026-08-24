@@ -14,8 +14,8 @@ Detailed documentation:
 
 - The daemon starts at boot through `systemd` and scans `/proc` at a configurable interval.
 - Processes are attributed by numeric UID and matched against the resolved `/proc/PID/exe` path.
-- An application accrues wall-clock time once while one or more matching processes run.
-- A user's device allowance accrues once while any process owned by that user is present, regardless of the number of processes.
+- An application accrues wall-clock time once while one or more matching processes run in an unlocked, active graphical session.
+- A user's device allowance accrues once while an unlocked, active graphical session and any process owned by that user are present, regardless of the number of processes.
 - Outside the allowed hours, after the daily device allowance, or during a mandatory break, the daemon asks `systemd-logind` to lock the controlled user's graphical sessions.
 - At the limit, every matching process receives `SIGTERM`; processes still present after the grace period receive `SIGKILL`.
 - Usage is stored in `/var/lib/local-parental-control/usage.json` with atomic writes and resets on the next poll after local midnight.
@@ -239,7 +239,7 @@ configuration validates. Package upgrades preserve the administrator's config.
 
 The controlled account must not have sudo/root access. Root can always stop or alter this service. Process polling means a newly launched over-limit application can run for up to one polling interval. Executables copied to a different path do not match the original rule, so the child account should not have access to terminals, interpreters, alternative launchers, package installation, AppImage execution, Wine, or virtual machines if those are realistic bypasses. Those OS-level restrictions are administrator policy and are deliberately not applied automatically by this project.
 
-Changing the wall clock can affect the daily reset, allowed-hours checks, and break deadlines. The supplied service cannot change the system clock (`ProtectClock=true`), but the administrator must also ensure the child account lacks permission to do so. Device presence is inferred from processes owned by the configured UID; lingering user services and processes that remain active while the screen is locked can continue consuming time.
+Changing the wall clock can affect the daily reset, allowed-hours checks, and break deadlines. The supplied service cannot change the system clock (`ProtectClock=true`), but the administrator must also ensure the child account lacks permission to do so. Device and application usage pause while every graphical session for the user is locked or inactive. They resume after unlock within the same calendar day. Time while the computer is shut down or the daemon is stopped is not added. If session state cannot be read reliably from systemd-logind, usage pauses and the daemon records a warning.
 
 ## License
 

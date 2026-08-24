@@ -168,6 +168,7 @@ func (s *Service) tick() error {
 		active[username][app.ID] = true
 	}
 	seconds := int64(delta / time.Second)
+	countingUsers := make(map[string]bool)
 	for username, uid := range activeUsers {
 		uc := s.cfg.Users[username]
 		used := s.state.DeviceSeconds[username]
@@ -185,6 +186,15 @@ func (s *Service) tick() error {
 			delete(s.state.BreakUntil, username)
 			s.state.ContinuousSeconds[username] = 0
 		}
+		unlocked, err := s.sessions.Unlocked(uid)
+		if err != nil {
+			s.logger.Warn("session state unavailable; usage paused", "user", username, "uid", uid, "error", err)
+			continue
+		}
+		if !unlocked {
+			continue
+		}
+		countingUsers[username] = true
 		s.state.DeviceSeconds[username] += seconds
 		s.state.ContinuousSeconds[username] += seconds
 		if s.state.DeviceSeconds[username] >= int64(uc.DailyDeviceMinutes*60) {
@@ -198,6 +208,9 @@ func (s *Service) tick() error {
 		}
 	}
 	for username, apps := range active {
+		if !countingUsers[username] {
+			continue
+		}
 		for appID := range apps {
 			s.add(username, appID, seconds)
 		}

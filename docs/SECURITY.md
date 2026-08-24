@@ -26,9 +26,9 @@ process, but they do not make it equivalent to an unprivileged service.
 - AppArmor limits filesystem access and outbound signals.
 - AppArmor permits read-only access to installed Snap files so configured ELF
   paths can be validated; Snap files remain non-writable by the daemon.
-- Screen locking queries sessions using only a validated numeric UID and passes
-  validated session identifiers to the fixed `/usr/bin/loginctl lock-session`
-  command. Each operation has a five-second timeout.
+- Screen locking and usage accounting query sessions using only a validated
+  numeric UID and pass validated session identifiers to the fixed
+  `/usr/bin/loginctl` command. Each operation has a five-second timeout.
 
 ## Limitations
 
@@ -42,10 +42,11 @@ mechanisms is administrator policy and is outside this service.
 Polling allows an over-limit application or login session to run for up to one poll interval.
 After the configured grace period, `SIGKILL` can cause unsaved application data
 to be lost. Screen locking preserves running programs, but it depends on the
-desktop environment honoring systemd-logind's lock request. Device presence is
-inferred from owned processes, so lingering services and processes that remain
-active behind a locked screen can continue consuming time. Changing the system
-clock can affect the daily reset, allowed-hours checks, and break deadlines.
+desktop environment honoring systemd-logind's lock request. Usage accounting
+also depends on systemd-logind reporting an active graphical session and its
+lock state. If that state is unavailable, accounting pauses and the daemon
+records a warning. Changing the system clock can affect the daily reset,
+allowed-hours checks, and break deadlines.
 
 The service is not a substitute for account separation, filesystem
 permissions, application sandboxing, backups, or operating-system updates.
