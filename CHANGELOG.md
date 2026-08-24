@@ -31,6 +31,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- Production validation now rejects scripts and the shared Snap launcher, which cannot be matched reliably through /proc/PID/exe.
+
 - Builds now produce installer-safe binary permissions, AppArmor permits the process inspection required for executable attribution, and installation waits for the control socket to become ready.
 
 ## [0.1.0] - 2026-08-20

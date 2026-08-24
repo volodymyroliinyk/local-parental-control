@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -128,6 +129,16 @@ func (c *Config) validateExecutables(expectedUID uint32) error {
 				if !ok || stat.Uid != expectedUID || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 || info.Mode().Perm()&0022 != 0 {
 					return fmt.Errorf("application %q executable %q must be a UID %d-owned executable regular file not writable by group or others", app.ID, resolved, expectedUID)
 				}
+				if filepath.Clean(resolved) == "/usr/bin/snap" {
+					return fmt.Errorf("application %q executable %q resolves to the shared Snap launcher /usr/bin/snap; Snap applications are not supported", app.ID, executable)
+				}
+				isELF, err := hasELFHeader(resolved)
+				if err != nil {
+					return fmt.Errorf("application %q executable %q: %w", app.ID, resolved, err)
+				}
+				if !isELF {
+					return fmt.Errorf("application %q executable %q is not a native ELF executable; scripts and application launchers cannot be matched through /proc/PID/exe", app.ID, executable)
+				}
 				resolved = filepath.Clean(resolved)
 				if seen[resolved] {
 					return fmt.Errorf("resolved executable %q appears in multiple rules for user %q", resolved, username)
@@ -139,6 +150,19 @@ func (c *Config) validateExecutables(expectedUID uint32) error {
 		c.Users[username] = userConfig
 	}
 	return nil
+}
+
+func hasELFHeader(path string) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	header := make([]byte, 4)
+	if _, err := io.ReadFull(f, header); err != nil {
+		return false, err
+	}
+	return bytes.Equal(header, []byte{0x7f, 'E', 'L', 'F'}), nil
 }
 
 func (c *Config) defaults() {

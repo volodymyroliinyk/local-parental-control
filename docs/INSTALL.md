@@ -44,7 +44,7 @@ sudo systemctl enable --now local-parental-control.service
 
 The configuration file must be owned by `root:root` with mode `0600`. Its
 directory must be root-owned and must not be writable by group or other users.
-Configured executables must resolve to regular, root-owned executable files
+Configured executables must resolve to native ELF, root-owned executable files
 that are not writable by group or other users.
 
 For every controlled user, set `daily_device_minutes` and an allowed local-time

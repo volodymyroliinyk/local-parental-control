@@ -29,7 +29,7 @@ process, but they do not make it equivalent to an unprivileged service.
 
 Rules match the kernel-resolved executable path. A copy at another path, an
 interpreter, another launcher, a container, Wine, a virtual machine, or remote
-execution can bypass a rule. Snap and Flatpak applications may expose launcher
+execution can bypass a rule. Snap applications are unsupported; Flatpak applications may expose launcher
 or sandbox-specific paths. Restricting those mechanisms is administrator policy
 and is outside this service.
 

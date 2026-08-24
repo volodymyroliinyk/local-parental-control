@@ -64,8 +64,10 @@ Important details:
 - Usernames must already exist when configuration is validated or loaded.
 - Each executable path must be absolute and unique within a user's rules.
 - Executables are resolved through symlinks when the production configuration
-  is loaded. The resolved file must be owned by root, executable, regular, and
-  not writable by group or other users.
+  is loaded. The resolved file must be a native ELF binary owned by root,
+  executable, regular, and not writable by group or other users. Shell scripts,
+  application launchers, and the shared Snap launcher are rejected because
+  they are not the executable identity exposed by `/proc/PID/exe`.
 - Put all real executables used by an application in the same rule. Wrapper scripts and `.desktop` files are not executable identities.
 - Use `readlink -f /proc/PID/exe` while an application runs to discover its actual executable.
 - `daily_device_minutes` is required and must be 1–1440 minutes.
@@ -96,7 +98,13 @@ and [CCOHS](https://www.ccohs.ca/oshanswers/ergonomics/office/stretching.html)
 to leave the screen for 5–10 minutes each hour. It is separate from short
 eye-rest reminders such as the 20-20-20 rule.
 
-Snap and Flatpak applications may run through shared launchers or sandbox-specific paths. Confirm their real `/proc/PID/exe` values before adding them. Do not put a shared executable such as `/usr/bin/java` in a rule unless all programs using it should share that limit.
+Snap applications are not supported. Their shared launcher is not a stable
+application identity, and Snap's AppArmor profiles can prevent this confined
+daemon from inspecting and signaling their processes. Use a native package and
+confirm its real `/proc/PID/exe` value before adding it. Flatpak and other
+sandboxed applications may have similar restrictions. Do not put a shared
+executable such as `/usr/bin/java` in a rule unless all programs using it should
+share that limit.
 
 ## Install
 

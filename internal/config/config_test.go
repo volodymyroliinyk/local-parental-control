@@ -247,6 +247,29 @@ func TestValidateExecutablesCanonicalizesSystemBinaryAndRejectsWritableFile(t *t
 	}
 }
 
+func TestValidateExecutablesRejectsScriptAndSnapLauncher(t *testing.T) {
+	username := currentUser(t).Username
+	owner := uint32(os.Geteuid())
+	script := filepath.Join(t.TempDir(), "browser")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec /usr/bin/true\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{Users: map[string]UserConfig{username: {Applications: []Application{{ID: "script", Executables: []string{script}}}}}}
+	if err := cfg.validateExecutables(owner); err == nil || !strings.Contains(err.Error(), "not a native ELF executable") {
+		t.Fatalf("unexpected script validation error: %v", err)
+	}
+
+	info, err := os.Stat("/usr/bin/snap")
+	if err != nil {
+		t.Skipf("snap launcher is not installed: %v", err)
+	}
+	owner = info.Sys().(*syscall.Stat_t).Uid
+	cfg.Users[username] = UserConfig{Applications: []Application{{ID: "snap", Executables: []string{"/usr/bin/snap"}}}}
+	if err := cfg.validateExecutables(owner); err == nil || !strings.Contains(err.Error(), "Snap applications are not supported") {
+		t.Fatalf("unexpected Snap validation error: %v", err)
+	}
+}
+
 func writeConfig(t *testing.T, value any) string {
 	t.Helper()
 	data, err := json.Marshal(value)
