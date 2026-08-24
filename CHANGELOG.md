@@ -33,6 +33,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- Updates now validate existing configuration with the newly built lpctl, avoiding false unknown-field failures from an older installed CLI.
+
 - Production validation now rejects scripts and the shared Snap launcher, which cannot be matched reliably through /proc/PID/exe.
 
 - Builds now produce installer-safe binary permissions, AppArmor permits the process inspection required for executable attribution, and installation waits for the control socket to become ready.

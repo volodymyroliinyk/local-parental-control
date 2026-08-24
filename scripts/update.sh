@@ -30,10 +30,6 @@ if ! command -v apparmor_parser >/dev/null 2>&1; then
   echo "AppArmor is required. Install the apparmor package first." >&2
   exit 1
 fi
-# Validate before replacing a running daemon. The update never overwrites config or state.
-if command -v lpctl >/dev/null 2>&1; then
-  lpctl validate
-fi
 if [[ -z ${SUDO_UID:-} || ${SUDO_UID} -eq 0 ]]; then
   echo "Run this script through sudo from the administrator account." >&2
   exit 1
@@ -45,6 +41,11 @@ for binary in local-parental-control lpctl; do
     exit 1
   fi
 done
+
+# Validate with the new CLI before replacing a running daemon. An older
+# installed lpctl may reject configuration fields introduced by this update.
+# The update never overwrites config or state.
+"${build_dir}/lpctl" validate
 
 install -D -o root -g root -m 0755 "${build_dir}/local-parental-control" /usr/local/sbin/local-parental-control
 install -D -o root -g root -m 0755 "${build_dir}/lpctl" /usr/local/sbin/lpctl
