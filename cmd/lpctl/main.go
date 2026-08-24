@@ -58,12 +58,8 @@ func run(args []string) int {
 			return 1
 		}
 		printDiscovered(applications)
-		supported, unsupported := discoveryCounts(applications)
-		if unsupported > 0 {
-			fmt.Fprintln(os.Stderr, "Paths marked 'unsupported launcher' are informational and must not be added to the configuration.")
-		}
-		if len(applications) > 0 && supported == 0 {
-			fmt.Fprintln(os.Stderr, "No supported native executable was found. Install a native ELF package or choose another native application.")
+		if len(applications) == 0 {
+			fmt.Fprintln(os.Stderr, "No configuration-ready executable path was found.")
 			return 1
 		}
 		return 0
@@ -162,7 +158,7 @@ func usage() {
 
 Commands:
   validate                 validate the configuration file
-  discover KEYWORD         find installed native, Snap, and Flatpak applications
+  discover KEYWORD         find configuration-ready native and Snap executables
   status                   show today's usage
   reload                   reload configuration without restarting
   reset USER [APP_ID]      reset usage for a user or one application

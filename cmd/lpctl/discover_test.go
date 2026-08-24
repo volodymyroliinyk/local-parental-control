@@ -40,14 +40,25 @@ func TestNativeExecutableRejectsSnapLauncher(t *testing.T) {
 	}
 }
 
-func TestDiscoveryCountsSupportedAndUnsupportedResults(t *testing.T) {
-	applications := []discoveredApplication{
-		{Executable: "/usr/bin/firefox", Supported: true},
-		{Executable: "/snap/bin/firefox", Supported: false},
-		{Executable: "flatpak run org.mozilla.firefox", Supported: false},
+func TestDiscoverSnapPackageReturnsELFInsteadOfLauncher(t *testing.T) {
+	root := t.TempDir()
+	actual := filepath.Join(root, "usr", "lib", "firefox", "firefox")
+	if err := os.MkdirAll(filepath.Dir(actual), 0755); err != nil {
+		t.Fatal(err)
 	}
-	supported, unsupported := discoveryCounts(applications)
-	if supported != 1 || unsupported != 2 {
-		t.Fatalf("discoveryCounts() = %d, %d; want 1, 2", supported, unsupported)
+	if err := os.WriteFile(actual, append([]byte{0x7f, 'E', 'L', 'F'}, make([]byte, 12)...), 0755); err != nil {
+		t.Fatal(err)
+	}
+	launcher := filepath.Join(root, "firefox.launcher")
+	if err := os.WriteFile(launcher, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	var results []discoveredApplication
+	discoverSnapPackage(root, "firefox", "firefox", func(result discoveredApplication) { results = append(results, result) })
+	if len(results) != 1 || results[0].Executable != actual {
+		t.Fatalf("unexpected Snap discovery results: %#v", results)
+	}
+	if _, valid := nativeExecutable(results[0].Executable); !valid {
+		t.Fatalf("discovered path is not configuration-ready: %q", results[0].Executable)
 	}
 }

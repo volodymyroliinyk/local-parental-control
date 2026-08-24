@@ -16,7 +16,6 @@ import (
 
 type discoveredApplication struct {
 	Source, Package, Executable string
-	Supported                   bool
 }
 
 type packageManager struct {
@@ -47,7 +46,6 @@ func discoverApplications(keyword string) ([]discoveredApplication, error) {
 		discoverNativePackages(keyword, manager, add)
 	}
 	discoverSnap(keyword, add)
-	discoverFlatpak(keyword, add)
 	applications := make([]discoveredApplication, 0, len(results))
 	for _, result := range results {
 		applications = append(applications, result)
@@ -80,7 +78,7 @@ func discoverPATH(keyword string, add func(discoveredApplication)) {
 				continue
 			}
 			if path, ok := nativeExecutable(filepath.Join(directory, entry.Name())); ok {
-				add(discoveredApplication{Source: "path", Package: "-", Executable: path, Supported: true})
+				add(discoveredApplication{Source: "path", Package: "-", Executable: path})
 			}
 		}
 	}
@@ -110,71 +108,57 @@ func discoverNativePackages(keyword string, manager packageManager, add func(dis
 				continue
 			}
 			if path, valid := nativeExecutable(fileFields[manager.fileColumn]); valid {
-				add(discoveredApplication{Source: strings.TrimSuffix(manager.name, "-query"), Package: pkg, Executable: path, Supported: true})
+				add(discoveredApplication{Source: strings.TrimSuffix(manager.name, "-query"), Package: pkg, Executable: path})
 			}
 		}
 	}
 }
 
 func discoverSnap(keyword string, add func(discoveredApplication)) {
+	packages := make(map[string]bool)
 	entries, _ := os.ReadDir("/snap/bin")
 	for _, entry := range entries {
 		if !strings.Contains(strings.ToLower(entry.Name()), keyword) {
 			continue
 		}
 		pkg := strings.SplitN(entry.Name(), ".", 2)[0]
-		add(discoveredApplication{Source: "snap", Package: pkg, Executable: filepath.Join("/snap/bin", entry.Name()), Supported: false})
+		packages[pkg] = true
 	}
 	output, ok := commandOutput("snap", "list")
-	if !ok {
-		return
-	}
-	for index, line := range outputLines(output) {
-		if index == 0 || !strings.Contains(strings.ToLower(line), keyword) {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) == 0 {
-			continue
-		}
-		pkg, matched := fields[0], false
-		for _, entry := range entries {
-			if entry.Name() == pkg || strings.HasPrefix(entry.Name(), pkg+".") {
-				add(discoveredApplication{Source: "snap", Package: pkg, Executable: filepath.Join("/snap/bin", entry.Name()), Supported: false})
-				matched = true
+	if ok {
+		for index, line := range outputLines(output) {
+			if index == 0 || !strings.Contains(strings.ToLower(line), keyword) {
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) > 0 {
+				packages[fields[0]] = true
 			}
 		}
-		if !matched {
-			add(discoveredApplication{Source: "snap", Package: pkg, Executable: "snap run " + pkg, Supported: false})
-		}
+	}
+	for pkg := range packages {
+		discoverSnapPackage(filepath.Join("/snap", pkg, "current"), pkg, keyword, add)
 	}
 }
 
-func discoverFlatpak(keyword string, add func(discoveredApplication)) {
-	patterns := []string{"/var/lib/flatpak/app/*", "/home/*/.local/share/flatpak/app/*", "/root/.local/share/flatpak/app/*"}
-	for _, pattern := range patterns {
-		matches, _ := filepath.Glob(pattern)
-		for _, match := range matches {
-			id := filepath.Base(match)
-			if strings.Contains(strings.ToLower(id), keyword) {
-				add(discoveredApplication{Source: "flatpak", Package: id, Executable: "flatpak run " + id, Supported: false})
-			}
-		}
-	}
-	output, ok := commandOutput("flatpak", "list", "--app", "--columns=application,name,description")
-	if !ok {
+func discoverSnapPackage(root, pkg, keyword string, add func(discoveredApplication)) {
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
 		return
 	}
-	for _, line := range outputLines(output) {
-		if !strings.Contains(strings.ToLower(line), keyword) {
-			continue
+	_ = filepath.WalkDir(resolvedRoot, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return nil
 		}
-		fields := strings.Split(line, "\t")
-		id := strings.TrimSpace(fields[0])
-		if id != "" {
-			add(discoveredApplication{Source: "flatpak", Package: id, Executable: "flatpak run " + id, Supported: false})
+		name := strings.ToLower(entry.Name())
+		if !strings.Contains(name, keyword) && !strings.Contains(name, strings.ToLower(pkg)) {
+			return nil
 		}
-	}
+		if executable, valid := nativeExecutable(path); valid {
+			add(discoveredApplication{Source: "snap", Package: pkg, Executable: executable})
+		}
+		return nil
+	})
 }
 
 func nativeExecutable(path string) (string, bool) {
@@ -229,21 +213,6 @@ func printDiscovered(applications []discoveredApplication) {
 		return
 	}
 	for _, application := range applications {
-		state := "supported"
-		if !application.Supported {
-			state = "unsupported launcher"
-		}
-		fmt.Printf("%-8s  %-28s  %-20s  %s\n", application.Source, application.Package, state, application.Executable)
+		fmt.Printf("%-8s  %-28s  supported             %s\n", application.Source, application.Package, application.Executable)
 	}
-}
-
-func discoveryCounts(applications []discoveredApplication) (supported, unsupported int) {
-	for _, application := range applications {
-		if application.Supported {
-			supported++
-		} else {
-			unsupported++
-		}
-	}
-	return supported, unsupported
 }

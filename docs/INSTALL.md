@@ -34,9 +34,10 @@ administrator who invoked sudo and that group or other users cannot modify
 them. It then installs the binaries, systemd unit, AppArmor profile, and
 documentation.
 
-Edit the installed configuration:
+Discover application paths and edit the installed configuration:
 
 ```bash
+sudo lpctl discover firefox
 sudoedit /etc/local-parental-control/config.json
 sudo lpctl validate
 sudo systemctl enable --now local-parental-control.service
@@ -44,7 +45,7 @@ sudo systemctl enable --now local-parental-control.service
 
 The configuration file must be owned by `root:root` with mode `0600`. Its
 directory must be root-owned and must not be writable by group or other users.
-Configured executables must resolve to native ELF, root-owned executable files
+Configured executables must resolve to ELF, root-owned executable files
 that are not writable by group or other users.
 
 For every controlled user, set `daily_device_minutes` and an allowed local-time
@@ -66,20 +67,22 @@ If the example user does not exist or its configuration is otherwise invalid,
 the package remains installed but the service stays disabled. Edit the
 configuration, validate it, and start the service as shown above.
 
-## Find executable paths
+## Add or change an application
 
-Start the application, find its process ID, and inspect the kernel-resolved
-executable path:
+Let `lpctl` find configuration-ready ELF paths, copy all relevant results into
+one application rule, validate, and reload:
 
 ```bash
-pgrep -a vlc
-readlink -f /proc/PID/exe
+sudo lpctl discover firefox
+sudoedit /etc/local-parental-control/config.json
+sudo lpctl validate
+sudo lpctl reload
 ```
 
-Replace `PID` with the numeric process ID. Add every distinct executable used
-by the application to the same rule. Do not add wrapper scripts, `.desktop`
-files, or a shared runtime such as Java unless every program using that runtime
-should share one limit.
+Every printed `supported` path can be copied into `executables`. Discovery
+resolves Snap launchers to real files under `/snap/PACKAGE/REVISION`; never use
+`/snap/bin/*` manually. Add every returned executable used by the application
+to the same rule.
 
 ## Administration
 
@@ -94,8 +97,9 @@ sudo lpctl reset child
 sudo lpctl reset child vlc
 ```
 
-After editing the configuration, run `validate` and then `reload`. A failed
-reload leaves the previous configuration active.
+After editing the configuration, run `validate` and then `reload`. This applies
+valid changes without restarting systemd. A failed reload leaves the previous
+configuration active.
 
 Inspect service health and logs with:
 
@@ -119,11 +123,8 @@ The update preserves configuration and usage state. Confirm service health
 afterward with `sudo lpctl status`. If the existing configuration is invalid
 for the new version, the updater installs only the new `lpctl`, leaves the
 installed and running daemon and its service files unchanged, and exits with
-status 2. Use `sudo lpctl discover KEYWORD` to find supported executable paths.
-Add only entries marked `supported`; entries
-marked `unsupported launcher`, including Snap launchers, are informational and
-must not be added. If no supported result exists, install a native ELF package
-or choose another native application. Then correct the configuration and run:
+status 2. Use `sudo lpctl discover KEYWORD` to get configuration-ready paths,
+correct the configuration, and run:
 
 ```bash
 sudo lpctl validate

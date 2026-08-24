@@ -64,10 +64,9 @@ Important details:
 - Usernames must already exist when configuration is validated or loaded.
 - Each executable path must be absolute and unique within a user's rules.
 - Executables are resolved through symlinks when the production configuration
-  is loaded. The resolved file must be a native ELF binary owned by root,
-  executable, regular, and not writable by group or other users. Shell scripts,
-  application launchers, and the shared Snap launcher are rejected because
-  they are not the executable identity exposed by `/proc/PID/exe`.
+  is loaded. The resolved file must be an ELF binary owned by root, executable,
+  regular, and not writable by group or other users. Use `lpctl discover`
+  instead of launcher paths such as `/snap/bin/firefox`.
 - Put all real executables used by an application in the same rule. Wrapper scripts and `.desktop` files are not executable identities.
 - Use `readlink -f /proc/PID/exe` while an application runs to discover its actual executable.
 - `daily_device_minutes` is required and must be 1–1440 minutes.
@@ -98,20 +97,18 @@ and [CCOHS](https://www.ccohs.ca/oshanswers/ergonomics/office/stretching.html)
 to leave the screen for 5–10 minutes each hour. It is separate from short
 eye-rest reminders such as the 20-20-20 rule.
 
-Snap applications are not supported. Their shared launcher is not a stable
-application identity, and Snap's AppArmor profiles can prevent this confined
-daemon from inspecting and signaling their processes. Use a native package and
-confirm its real `/proc/PID/exe` value before adding it. Flatpak and other
-sandboxed applications may have similar restrictions. Do not put a shared
-executable such as `/usr/bin/java` in a rule unless all programs using it should
-share that limit.
+Snap launcher paths under `/snap/bin` are not process identities. The
+`lpctl discover` command resolves installed Snap packages to their real ELF
+executables under `/snap/PACKAGE/REVISION`; copy the returned paths into the
+configuration. Do not put a shared executable such as `/usr/bin/java` in a rule
+unless all programs using it should share that limit.
 
 ## Install
 
 See the [installation guide](docs/INSTALL.md) for prerequisites,
 troubleshooting, updates, and removal.
 
-Review the scripts and example configuration first, then run:
+For a source installation, run:
 
 ```bash
 ./scripts/build.sh
@@ -122,9 +119,13 @@ The build must run as the administrator account, not as root. The installer
 accepts only regular, administrator-owned binaries that are not writable by
 group or other users. AppArmor must be installed and enabled.
 
-On a new installation, the script copies the example configuration. It will not start the daemon until the configured user exists and the file validates. After editing:
+The installer creates the configuration when it is missing. To add an
+application, discover its executable paths, edit the rule, validate, and load
+it:
 
 ```bash
+sudo lpctl discover firefox
+sudoedit /etc/local-parental-control/config.json
 sudo lpctl validate
 sudo systemctl enable --now local-parental-control.service
 ```
@@ -144,17 +145,14 @@ sudo systemctl status local-parental-control.service
 sudo journalctl -u local-parental-control.service
 ```
 
-`lpctl discover KEYWORD` searches `PATH` and installed packages managed by
-dpkg, RPM, Pacman, or APK for native ELF executables. It also reports matching
-Snap and Flatpak applications as `unsupported launcher`; do not copy those
-launcher commands into application rules. Review native results marked
-`supported` before adding their resolved paths to the configuration. If every
-result is an unsupported launcher, the command exits unsuccessfully because no
-valid configuration path was found. Install a native ELF package or choose a
-different native application; changing a Snap launcher path cannot make it a
-supported executable identity.
+`lpctl discover KEYWORD` searches `PATH`, native package databases, and
+installed Snap packages. Every returned `supported` path is a real ELF
+executable suitable for an `executables` array. The command never prints
+launcher paths such as `/snap/bin/firefox`.
 
-If a new configuration is invalid, `reload` reports an error and the daemon continues using the previous rules. Editing the file alone does not activate the changes.
+If a new configuration is invalid, `reload` reports an error and the daemon
+continues using the previous rules. A successful `reload` applies changes
+without a systemd restart.
 
 To update an installation made with `scripts/install.sh` while preserving the configuration and usage data:
 

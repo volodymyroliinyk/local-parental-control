@@ -29,9 +29,10 @@ process, but they do not make it equivalent to an unprivileged service.
 
 Rules match the kernel-resolved executable path. A copy at another path, an
 interpreter, another launcher, a container, Wine, a virtual machine, or remote
-execution can bypass a rule. Snap applications are unsupported; Flatpak applications may expose launcher
-or sandbox-specific paths. Restricting those mechanisms is administrator policy
-and is outside this service.
+execution can bypass a rule. Snap launcher paths are resolved by discovery to
+the package's real ELF executables. Other sandboxed applications may expose
+namespace-specific paths that cannot be matched reliably. Restricting those
+mechanisms is administrator policy and is outside this service.
 
 Polling allows an over-limit application or login session to run for up to one poll interval.
 After the configured grace period, `SIGKILL` can cause unsaved application data

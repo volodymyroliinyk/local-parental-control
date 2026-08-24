@@ -9,7 +9,7 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
-- The lpctl discover command finds matching native executables and identifies installed Snap and Flatpak launchers as unsupported.
+- The lpctl discover command returns configuration-ready ELF paths from native packages and installed Snap packages.
 
 - Configurable mandatory screen breaks with a 60-minute use and 10-minute break default.
 
@@ -27,6 +27,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
+- Application discovery now prints only executable paths that can be copied directly into configuration, resolving Snap launchers to real package ELF files.
+
 - The default termination grace period is 15 seconds to give applications more time to exit cleanly.
 
 - Installation and update scripts require binaries built without root privileges and verify their ownership and permissions before installation.
@@ -38,8 +40,6 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Empty application rules now report how to recover by adding a supported native executable or removing the rule, instead of implying that configuration was cached.
 
 - The systemd service no longer enters an automatic restart loop when startup configuration is invalid; it waits for an administrator to correct and validate the file.
-
-- Application discovery now fails clearly when it finds only unsupported launchers and explains that Snap and Flatpak launcher paths must not be added to configuration.
 
 - Source updates now install the new discovery command without restarting the daemon when an existing configuration is incompatible, allowing administrators to discover executable paths and repair the configuration first.
 

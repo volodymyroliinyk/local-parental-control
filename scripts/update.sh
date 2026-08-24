@@ -50,8 +50,7 @@ install -D -o root -g root -m 0755 "${build_dir}/lpctl" /usr/local/sbin/lpctl
 if ! /usr/local/sbin/lpctl validate; then
   echo "The new lpctl was installed, but the daemon update was deferred because the existing configuration is incompatible." >&2
   echo "The installed daemon, systemd unit, AppArmor profile, configuration, and usage data were left unchanged." >&2
-  echo "Use 'sudo lpctl discover KEYWORD' and add only a path marked 'supported'." >&2
-  echo "Paths marked 'unsupported launcher', including Snap launchers, must not be added." >&2
+  echo "Use 'sudo lpctl discover KEYWORD' and copy its executable paths into the matching application rule." >&2
   echo "After correcting and validating /etc/local-parental-control/config.json, rerun this updater." >&2
   exit 2
 fi
