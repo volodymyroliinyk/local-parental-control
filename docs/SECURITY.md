@@ -21,6 +21,8 @@ process, but they do not make it equivalent to an unprivileged service.
 - systemd removes unnecessary capabilities, address families, namespaces, and
   system calls.
 - AppArmor limits filesystem access and outbound signals.
+- AppArmor permits read-only access to installed Snap files so configured ELF
+  paths can be validated; Snap files remain non-writable by the daemon.
 - Screen locking queries sessions using only a validated numeric UID and passes
   validated session identifiers to the fixed `/usr/bin/loginctl lock-session`
   command. Each operation has a five-second timeout.

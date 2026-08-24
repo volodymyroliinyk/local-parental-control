@@ -15,12 +15,16 @@ profile local-parental-control /usr/{,local/}sbin/local-parental-control flags=(
   /proc/[0-9]*/status r,
   /proc/[0-9]*/stat r,
   /proc/[0-9]*/exe r,
+  /proc/[0-9]*/cgroup r,
+  /proc/sys/net/core/somaxconn r,
   /run/dbus/system_bus_socket rw,
   /run/local-parental-control/ rw,
   /run/local-parental-control/** rwk,
   /run/systemd/private rw,
   /var/lib/local-parental-control/ rw,
   /var/lib/local-parental-control/** rwk,
+  /snap/ r,
+  /snap/** r,
 
   signal (send) set=(term, kill),
 }

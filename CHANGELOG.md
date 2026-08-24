@@ -35,6 +35,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- AppArmor now permits the daemon to read discovered Snap ELF files during configuration validation and allows the procfs reads required for process and socket operation.
+
 - Source updates are now transactional when configuration is incompatible: only the new lpctl is installed, while the daemon, service, confinement, configuration, state, and running process remain unchanged until validation succeeds.
 
 - Empty application rules now report how to recover by adding a supported native executable or removing the rule, instead of implying that configuration was cached.
