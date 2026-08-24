@@ -159,6 +159,13 @@ To update an installation made with `scripts/install.sh` while preserving the co
 sudo ./scripts/update.sh
 ```
 
+If a configuration accepted by the previous version is invalid in the new
+version, the updater installs the new files but does not restart the service.
+The existing daemon process, if running, continues with its active
+configuration. Use the newly installed `sudo lpctl discover KEYWORD` command,
+correct `/etc/local-parental-control/config.json`, run `sudo lpctl validate`,
+and then run `sudo systemctl restart local-parental-control.service`.
+
 To uninstall binaries and the service while preserving configuration and usage history:
 
 ```bash

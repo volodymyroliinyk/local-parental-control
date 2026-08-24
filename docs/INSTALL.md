@@ -116,7 +116,15 @@ sudo ./scripts/update.sh
 ```
 
 The update preserves configuration and usage state. Confirm service health
-afterward with `sudo lpctl status`.
+afterward with `sudo lpctl status`. If the existing configuration is invalid
+for the new version, the updater installs the new files but leaves the running
+daemon untouched and exits with status 2. Use `sudo lpctl discover KEYWORD` to
+find supported executable paths, correct the configuration, and run:
+
+```bash
+sudo lpctl validate
+sudo systemctl restart local-parental-control.service
+```
 
 To remove a source installation while preserving configuration and usage
 history:

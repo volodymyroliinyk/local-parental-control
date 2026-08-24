@@ -33,6 +33,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- Source updates now install the new discovery command without restarting the daemon when an existing configuration is incompatible, allowing administrators to discover executable paths and repair the configuration first.
+
 - Updates now validate existing configuration with the newly built lpctl, avoiding false unknown-field failures from an older installed CLI.
 
 - Production validation now rejects scripts and the shared Snap launcher, which cannot be matched reliably through /proc/PID/exe.

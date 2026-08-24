@@ -42,11 +42,6 @@ for binary in local-parental-control lpctl; do
   fi
 done
 
-# Validate with the new CLI before replacing a running daemon. An older
-# installed lpctl may reject configuration fields introduced by this update.
-# The update never overwrites config or state.
-"${build_dir}/lpctl" validate
-
 install -D -o root -g root -m 0755 "${build_dir}/local-parental-control" /usr/local/sbin/local-parental-control
 install -D -o root -g root -m 0755 "${build_dir}/lpctl" /usr/local/sbin/lpctl
 install -D -o root -g root -m 0644 "${project_dir}/packaging/local-parental-control.service" /etc/systemd/system/local-parental-control.service
@@ -57,8 +52,16 @@ chmod 0600 /etc/local-parental-control/config.json
 apparmor_parser -r /etc/apparmor.d/local-parental-control
 
 systemctl daemon-reload
-/usr/local/sbin/lpctl validate
-systemctl restart local-parental-control.service
-systemctl is-active --quiet local-parental-control.service
-wait_for_daemon
-echo "Update complete; configuration and usage data were preserved."
+if /usr/local/sbin/lpctl validate; then
+  systemctl restart local-parental-control.service
+  systemctl is-active --quiet local-parental-control.service
+  wait_for_daemon
+  echo "Update complete; configuration and usage data were preserved."
+else
+  echo "Files were updated, but the service was not restarted because the existing configuration is invalid for this version." >&2
+  echo "The previously running service, if any, was left running with its active configuration." >&2
+  echo "Use 'sudo lpctl discover KEYWORD', update /etc/local-parental-control/config.json, then run:" >&2
+  echo "  sudo lpctl validate" >&2
+  echo "  sudo systemctl restart local-parental-control.service" >&2
+  exit 2
+fi
