@@ -117,16 +117,17 @@ sudo ./scripts/update.sh
 
 The update preserves configuration and usage state. Confirm service health
 afterward with `sudo lpctl status`. If the existing configuration is invalid
-for the new version, the updater installs the new files but leaves the running
-daemon untouched and exits with status 2. Use `sudo lpctl discover KEYWORD` to
-find supported executable paths. Add only entries marked `supported`; entries
+for the new version, the updater installs only the new `lpctl`, leaves the
+installed and running daemon and its service files unchanged, and exits with
+status 2. Use `sudo lpctl discover KEYWORD` to find supported executable paths.
+Add only entries marked `supported`; entries
 marked `unsupported launcher`, including Snap launchers, are informational and
 must not be added. If no supported result exists, install a native ELF package
 or choose another native application. Then correct the configuration and run:
 
 ```bash
 sudo lpctl validate
-sudo systemctl restart local-parental-control.service
+sudo ./scripts/update.sh
 ```
 
 To remove a source installation while preserving configuration and usage
@@ -148,6 +149,11 @@ If the service does not start:
 3. Check AppArmor denials with `sudo journalctl -k -g apparmor`.
 4. Run `sudo systemctl restart local-parental-control.service` after correcting
    the problem.
+
+The daemon exits with status 2 when its startup configuration is invalid.
+Systemd does not automatically restart it for that status, because retrying
+cannot repair the configuration. After correcting and validating the file,
+restart the service manually.
 
 Do not weaken file permissions, disable AppArmor, or grant additional systemd
 capabilities to work around an error without first identifying which access is

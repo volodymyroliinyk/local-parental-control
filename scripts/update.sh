@@ -42,8 +42,21 @@ for binary in local-parental-control lpctl; do
   fi
 done
 
-install -D -o root -g root -m 0755 "${build_dir}/local-parental-control" /usr/local/sbin/local-parental-control
+# Install the new standalone CLI first so migration and discovery commands are
+# available without replacing the running daemon. Only commit the daemon,
+# service, and confinement update after the new version accepts the existing
+# configuration.
 install -D -o root -g root -m 0755 "${build_dir}/lpctl" /usr/local/sbin/lpctl
+if ! /usr/local/sbin/lpctl validate; then
+  echo "The new lpctl was installed, but the daemon update was deferred because the existing configuration is incompatible." >&2
+  echo "The installed daemon, systemd unit, AppArmor profile, configuration, and usage data were left unchanged." >&2
+  echo "Use 'sudo lpctl discover KEYWORD' and add only a path marked 'supported'." >&2
+  echo "Paths marked 'unsupported launcher', including Snap launchers, must not be added." >&2
+  echo "After correcting and validating /etc/local-parental-control/config.json, rerun this updater." >&2
+  exit 2
+fi
+
+install -D -o root -g root -m 0755 "${build_dir}/local-parental-control" /usr/local/sbin/local-parental-control
 install -D -o root -g root -m 0644 "${project_dir}/packaging/local-parental-control.service" /etc/systemd/system/local-parental-control.service
 install -D -o root -g root -m 0644 "${project_dir}/packaging/apparmor/local-parental-control" /etc/apparmor.d/local-parental-control
 install -D -o root -g root -m 0644 "${project_dir}/README.md" /usr/share/doc/local-parental-control/README.md
@@ -52,19 +65,7 @@ chmod 0600 /etc/local-parental-control/config.json
 apparmor_parser -r /etc/apparmor.d/local-parental-control
 
 systemctl daemon-reload
-if /usr/local/sbin/lpctl validate; then
-  systemctl restart local-parental-control.service
-  systemctl is-active --quiet local-parental-control.service
-  wait_for_daemon
-  echo "Update complete; configuration and usage data were preserved."
-else
-  echo "Files were updated, but the service was not restarted because the existing configuration is invalid for this version." >&2
-  echo "The previously running service, if any, was left running with its active configuration." >&2
-  echo "Use 'sudo lpctl discover KEYWORD' and add only a path marked 'supported'." >&2
-  echo "Paths marked 'unsupported launcher', including Snap launchers, must not be added." >&2
-  echo "If no supported path is found, install a native ELF package or choose another native application." >&2
-  echo "Update /etc/local-parental-control/config.json, then run:" >&2
-  echo "  sudo lpctl validate" >&2
-  echo "  sudo systemctl restart local-parental-control.service" >&2
-  exit 2
-fi
+systemctl restart local-parental-control.service
+systemctl is-active --quiet local-parental-control.service
+wait_for_daemon
+echo "Update complete; configuration and usage data were preserved."

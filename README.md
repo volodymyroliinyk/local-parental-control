@@ -164,11 +164,12 @@ sudo ./scripts/update.sh
 ```
 
 If a configuration accepted by the previous version is invalid in the new
-version, the updater installs the new files but does not restart the service.
-The existing daemon process, if running, continues with its active
-configuration. Use the newly installed `sudo lpctl discover KEYWORD` command,
-correct `/etc/local-parental-control/config.json`, run `sudo lpctl validate`,
-and then run `sudo systemctl restart local-parental-control.service`.
+version, the updater installs only the new `lpctl` and defers the daemon
+update. The installed daemon, systemd unit, AppArmor profile, configuration,
+usage data, and running service remain unchanged. Use the newly installed
+`sudo lpctl discover KEYWORD` command, correct and validate
+`/etc/local-parental-control/config.json`, and rerun `sudo ./scripts/update.sh`
+to complete the update.
 
 To uninstall binaries and the service while preserving configuration and usage history:
 

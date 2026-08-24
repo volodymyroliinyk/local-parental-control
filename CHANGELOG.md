@@ -33,6 +33,12 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- Source updates are now transactional when configuration is incompatible: only the new lpctl is installed, while the daemon, service, confinement, configuration, state, and running process remain unchanged until validation succeeds.
+
+- Empty application rules now report how to recover by adding a supported native executable or removing the rule, instead of implying that configuration was cached.
+
+- The systemd service no longer enters an automatic restart loop when startup configuration is invalid; it waits for an administrator to correct and validate the file.
+
 - Application discovery now fails clearly when it finds only unsupported launchers and explains that Snap and Flatpak launcher paths must not be added to configuration.
 
 - Source updates now install the new discovery command without restarting the daemon when an existing configuration is incompatible, allowing administrators to discover executable paths and repair the configuration first.

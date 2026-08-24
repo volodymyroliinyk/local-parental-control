@@ -16,6 +16,8 @@ import (
 
 var version = "development"
 
+const invalidConfigurationExitCode = 2
+
 func main() {
 	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
 	configPath := fs.String("config", config.DefaultPath, "path to configuration file")
@@ -32,7 +34,7 @@ func main() {
 	cfg, err := config.LoadSecure(*configPath)
 	if err != nil {
 		logger.Error("cannot load configuration", "error", err)
-		os.Exit(1)
+		os.Exit(invalidConfigurationExitCode)
 	}
 
 	service, err := daemon.New(cfg, *configPath, *statePath, *socketPath, logger)

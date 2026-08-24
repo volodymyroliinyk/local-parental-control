@@ -243,7 +243,7 @@ func (c *Config) Validate() error {
 				return fmt.Errorf("%s.daily_minutes must be between 1 and 1440", prefix)
 			}
 			if len(app.Executables) == 0 {
-				return fmt.Errorf("%s.executables is required", prefix)
+				return fmt.Errorf("%s.executables must contain at least one supported native executable; remove this application rule if none is available", prefix)
 			}
 			for _, executable := range app.Executables {
 				if !filepath.IsAbs(executable) {

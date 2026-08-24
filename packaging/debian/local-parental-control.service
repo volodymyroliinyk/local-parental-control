@@ -7,6 +7,7 @@ After=local-fs.target
 Type=simple
 ExecStart=/usr/sbin/local-parental-control
 Restart=on-failure
+RestartPreventExitStatus=2
 RestartSec=5s
 User=root
 Group=root

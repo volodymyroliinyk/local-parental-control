@@ -151,6 +151,26 @@ func TestValidateRejectsInvalidConfiguration(t *testing.T) {
 	}
 }
 
+func TestValidateExplainsEmptyApplicationExecutableRecovery(t *testing.T) {
+	username := currentUser(t).Username
+	cfg := Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]UserConfig{
+		username: {
+			DailyDeviceMinutes:   120,
+			ContinuousUseMinutes: 60,
+			BreakMinutes:         10,
+			AllowedFrom:          "08:00",
+			AllowedUntil:         "20:00",
+			Applications: []Application{{
+				ID: "firefox", Name: "Firefox", DailyMinutes: 30,
+			}},
+		},
+	}}
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "remove this application rule") {
+		t.Fatalf("unexpected validation error: %v", err)
+	}
+}
+
 func TestValidateAllowsDeviceOnlyConfiguration(t *testing.T) {
 	username := currentUser(t).Username
 	cfg := Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]UserConfig{
