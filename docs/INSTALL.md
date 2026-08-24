@@ -119,7 +119,10 @@ The update preserves configuration and usage state. Confirm service health
 afterward with `sudo lpctl status`. If the existing configuration is invalid
 for the new version, the updater installs the new files but leaves the running
 daemon untouched and exits with status 2. Use `sudo lpctl discover KEYWORD` to
-find supported executable paths, correct the configuration, and run:
+find supported executable paths. Add only entries marked `supported`; entries
+marked `unsupported launcher`, including Snap launchers, are informational and
+must not be added. If no supported result exists, install a native ELF package
+or choose another native application. Then correct the configuration and run:
 
 ```bash
 sudo lpctl validate

@@ -58,6 +58,14 @@ func run(args []string) int {
 			return 1
 		}
 		printDiscovered(applications)
+		supported, unsupported := discoveryCounts(applications)
+		if unsupported > 0 {
+			fmt.Fprintln(os.Stderr, "Paths marked 'unsupported launcher' are informational and must not be added to the configuration.")
+		}
+		if len(applications) > 0 && supported == 0 {
+			fmt.Fprintln(os.Stderr, "No supported native executable was found. Install a native ELF package or choose another native application.")
+			return 1
+		}
 		return 0
 	}
 	if command == "help" {

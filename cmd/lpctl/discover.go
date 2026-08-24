@@ -236,3 +236,14 @@ func printDiscovered(applications []discoveredApplication) {
 		fmt.Printf("%-8s  %-28s  %-20s  %s\n", application.Source, application.Package, state, application.Executable)
 	}
 }
+
+func discoveryCounts(applications []discoveredApplication) (supported, unsupported int) {
+	for _, application := range applications {
+		if application.Supported {
+			supported++
+		} else {
+			unsupported++
+		}
+	}
+	return supported, unsupported
+}

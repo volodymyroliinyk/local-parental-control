@@ -148,7 +148,11 @@ sudo journalctl -u local-parental-control.service
 dpkg, RPM, Pacman, or APK for native ELF executables. It also reports matching
 Snap and Flatpak applications as `unsupported launcher`; do not copy those
 launcher commands into application rules. Review native results marked
-`supported` before adding their resolved paths to the configuration.
+`supported` before adding their resolved paths to the configuration. If every
+result is an unsupported launcher, the command exits unsuccessfully because no
+valid configuration path was found. Install a native ELF package or choose a
+different native application; changing a Snap launcher path cannot make it a
+supported executable identity.
 
 If a new configuration is invalid, `reload` reports an error and the daemon continues using the previous rules. Editing the file alone does not activate the changes.
 

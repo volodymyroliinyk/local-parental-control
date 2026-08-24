@@ -39,3 +39,15 @@ func TestNativeExecutableRejectsSnapLauncher(t *testing.T) {
 		t.Fatal("shared Snap launcher was reported as supported")
 	}
 }
+
+func TestDiscoveryCountsSupportedAndUnsupportedResults(t *testing.T) {
+	applications := []discoveredApplication{
+		{Executable: "/usr/bin/firefox", Supported: true},
+		{Executable: "/snap/bin/firefox", Supported: false},
+		{Executable: "flatpak run org.mozilla.firefox", Supported: false},
+	}
+	supported, unsupported := discoveryCounts(applications)
+	if supported != 1 || unsupported != 2 {
+		t.Fatalf("discoveryCounts() = %d, %d; want 1, 2", supported, unsupported)
+	}
+}

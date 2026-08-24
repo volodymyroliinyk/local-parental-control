@@ -60,7 +60,10 @@ if /usr/local/sbin/lpctl validate; then
 else
   echo "Files were updated, but the service was not restarted because the existing configuration is invalid for this version." >&2
   echo "The previously running service, if any, was left running with its active configuration." >&2
-  echo "Use 'sudo lpctl discover KEYWORD', update /etc/local-parental-control/config.json, then run:" >&2
+  echo "Use 'sudo lpctl discover KEYWORD' and add only a path marked 'supported'." >&2
+  echo "Paths marked 'unsupported launcher', including Snap launchers, must not be added." >&2
+  echo "If no supported path is found, install a native ELF package or choose another native application." >&2
+  echo "Update /etc/local-parental-control/config.json, then run:" >&2
   echo "  sudo lpctl validate" >&2
   echo "  sudo systemctl restart local-parental-control.service" >&2
   exit 2

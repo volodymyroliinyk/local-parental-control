@@ -33,6 +33,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- Application discovery now fails clearly when it finds only unsupported launchers and explains that Snap and Flatpak launcher paths must not be added to configuration.
+
 - Source updates now install the new discovery command without restarting the daemon when an existing configuration is incompatible, allowing administrators to discover executable paths and repair the configuration first.
 
 - Updates now validate existing configuration with the newly built lpctl, avoiding false unknown-field failures from an older installed CLI.
