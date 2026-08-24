@@ -47,6 +47,19 @@ func run(args []string) int {
 		fmt.Printf("configuration is valid (%d user(s), %d application rule(s))\n", len(cfg.Users), cfg.ApplicationCount())
 		return 0
 	}
+	if command == "discover" {
+		if len(remaining) != 2 {
+			usage()
+			return 2
+		}
+		applications, err := discoverApplications(remaining[1])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "cannot discover applications:", err)
+			return 1
+		}
+		printDiscovered(applications)
+		return 0
+	}
 	if command == "help" {
 		usage()
 		return 0
@@ -141,6 +154,7 @@ func usage() {
 
 Commands:
   validate                 validate the configuration file
+  discover KEYWORD         find installed native, Snap, and Flatpak applications
   status                   show today's usage
   reload                   reload configuration without restarting
   reset USER [APP_ID]      reset usage for a user or one application

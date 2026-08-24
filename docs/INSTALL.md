@@ -87,6 +87,7 @@ Administrative commands require root:
 
 ```bash
 sudo lpctl validate
+sudo lpctl discover firefox
 sudo lpctl status
 sudo lpctl reload
 sudo lpctl reset child

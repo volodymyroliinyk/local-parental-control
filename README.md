@@ -135,6 +135,7 @@ Existing `/etc/local-parental-control/config.json` files are preserved during up
 
 ```text
 sudo lpctl validate
+sudo lpctl discover firefox
 sudo lpctl status
 sudo lpctl reload
 sudo lpctl reset child
@@ -142,6 +143,12 @@ sudo lpctl reset child vlc
 sudo systemctl status local-parental-control.service
 sudo journalctl -u local-parental-control.service
 ```
+
+`lpctl discover KEYWORD` searches `PATH` and installed packages managed by
+dpkg, RPM, Pacman, or APK for native ELF executables. It also reports matching
+Snap and Flatpak applications as `unsupported launcher`; do not copy those
+launcher commands into application rules. Review native results marked
+`supported` before adding their resolved paths to the configuration.
 
 If a new configuration is invalid, `reload` reports an error and the daemon continues using the previous rules. Editing the file alone does not activate the changes.
 

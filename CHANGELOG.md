@@ -9,6 +9,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- The lpctl discover command finds matching native executables and identifies installed Snap and Flatpak launchers as unsupported.
+
 - Configurable mandatory screen breaks with a 60-minute use and 10-minute break default.
 
 - Per-user daily device allowances and allowed login hours, enforced through systemd-logind screen locking.
