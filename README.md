@@ -7,6 +7,7 @@ This version controls native processes only.
 Detailed documentation:
 
 - [Installation and administration](docs/INSTALL.md)
+- [Manual behavior test checklist](docs/MANUAL-TESTS.md)
 - [Development guide](docs/DEVELOPMENT.md)
 - [Security model](docs/SECURITY.md)
 

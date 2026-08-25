@@ -9,6 +9,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- A comprehensive manual behavior test checklist for release, regression, installation, enforcement, persistence, indicator, and security verification.
+
 - A quiet read-only panel indicator now starts automatically for configured desktop users and shows their remaining device, break, and application time without notifications.
 
 - The lpctl discover command returns configuration-ready ELF paths from native packages and installed Snap packages.
