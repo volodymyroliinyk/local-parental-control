@@ -10,6 +10,7 @@ profile local-parental-control /usr/{,local/}sbin/local-parental-control flags=(
   ptrace (read),
 
   /etc/local-parental-control/config.json r,
+  /etc/nsswitch.conf r,
   /etc/passwd r,
   /usr/bin/loginctl rix,
   /proc/ r,
@@ -43,7 +44,7 @@ profile local-parental-control /usr/{,local/}sbin/local-parental-control flags=(
     bus=system
     path=/org/freedesktop/login1
     interface=org.freedesktop.login1.Manager
-    member=LockSession
+    member={GetUser,GetSession,LockSession}
     peer=(name=org.freedesktop.login1),
 
   dbus (receive)

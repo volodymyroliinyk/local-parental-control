@@ -39,6 +39,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- AppArmor now permits the complete systemd-logind lookup sequence used by loginctl before locking controlled graphical sessions.
+
 - AppArmor now allows loginctl to bind its private system-bus client socket, restoring session-state queries and screen locking under confinement.
 
 - AppArmor now permits the daemon to query systemd-logind and lock controlled sessions outside allowed hours or at device and break limits.
