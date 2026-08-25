@@ -28,6 +28,10 @@ profile local-parental-control /usr/{,local/}sbin/local-parental-control flags=(
 
   signal (send) set=(term, kill),
 
+  # sd-bus gives loginctl a unique abstract client address before it connects
+  # to the system bus. Keep the bind permission limited to loginctl's suffix.
+  unix (bind) type=stream addr="@*/bus/loginctl/system",
+
   dbus (send)
     bus=system
     path=/org/freedesktop/login1/{user,session}/_*
