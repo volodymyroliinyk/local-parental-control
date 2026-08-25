@@ -84,7 +84,7 @@ func TestLabelAndTooltip(t *testing.T) {
 		}
 	}
 	status.DeviceBlocked = true
-	if got := Label(status); got != "Paused" {
+	if got := Label(status); got != "59m" {
 		t.Fatalf("blocked label = %q", got)
 	}
 }

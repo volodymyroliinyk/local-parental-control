@@ -39,6 +39,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- AppArmor now permits the daemon to query systemd-logind and lock controlled sessions outside allowed hours or at device and break limits.
+
+- The panel indicator now keeps showing remaining device time while access is paused or outside allowed hours.
+
 - AppArmor now permits the daemon to read discovered Snap ELF files during configuration validation and allows the procfs reads required for process and socket operation.
 
 - Source updates are now transactional when configuration is incompatible: only the new lpctl is installed, while the daemon, service, confinement, configuration, state, and running process remain unchanged until validation succeeds.

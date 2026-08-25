@@ -46,9 +46,6 @@ func Remaining(used, limit int64) int64 {
 }
 
 func Label(status *api.UserStatus) string {
-	if status.DeviceBlocked {
-		return "Paused"
-	}
 	return fmt.Sprintf("%dm", Remaining(status.DeviceUsedSeconds, status.DeviceLimitSeconds))
 }
 

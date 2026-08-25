@@ -107,7 +107,7 @@ func propertiesFor(status *api.UserStatus, date string) prop.Map {
 		"ItemIsMenu":            constant(false),
 		"Menu":                  constant(dbus.ObjectPath("/NO_DBUSMENU")),
 		"XAyatanaLabel":         changing(indicator.Label(status)),
-		"XAyatanaLabelGuide":    constant("Paused"),
+		"XAyatanaLabelGuide":    constant("1440m"),
 		"XAyatanaOrderingIndex": constant(uint32(0)),
 	}}
 }

@@ -2,6 +2,7 @@
 
 profile local-parental-control /usr/{,local/}sbin/local-parental-control flags=(attach_disconnected) {
   #include <abstractions/base>
+  #include <abstractions/dbus-strict>
 
   capability kill,
   capability sys_ptrace,
@@ -17,7 +18,6 @@ profile local-parental-control /usr/{,local/}sbin/local-parental-control flags=(
   /proc/[0-9]*/exe r,
   /proc/[0-9]*/cgroup r,
   /proc/sys/net/core/somaxconn r,
-  /run/dbus/system_bus_socket rw,
   /run/local-parental-control/ rw,
   /run/local-parental-control/** rwk,
   /run/systemd/private rw,
@@ -27,4 +27,22 @@ profile local-parental-control /usr/{,local/}sbin/local-parental-control flags=(
   /snap/** r,
 
   signal (send) set=(term, kill),
+
+  dbus (send)
+    bus=system
+    path=/org/freedesktop/login1/{user,session}/_*
+    interface=org.freedesktop.DBus.Properties
+    member=GetAll
+    peer=(name=org.freedesktop.login1),
+
+  dbus (send)
+    bus=system
+    path=/org/freedesktop/login1
+    interface=org.freedesktop.login1.Manager
+    member=LockSession
+    peer=(name=org.freedesktop.login1),
+
+  dbus (receive)
+    bus=system
+    peer=(name=org.freedesktop.login1),
 }
