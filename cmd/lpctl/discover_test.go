@@ -41,21 +41,27 @@ func TestNativeExecutableRejectsSnapLauncher(t *testing.T) {
 }
 
 func TestDiscoverSnapPackageReturnsELFInsteadOfLauncher(t *testing.T) {
-	root := t.TempDir()
-	actual := filepath.Join(root, "usr", "lib", "firefox", "firefox")
+	packageRoot := t.TempDir()
+	revisionRoot := filepath.Join(packageRoot, "100")
+	actual := filepath.Join(revisionRoot, "usr", "lib", "firefox", "firefox")
 	if err := os.MkdirAll(filepath.Dir(actual), 0755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(actual, append([]byte{0x7f, 'E', 'L', 'F'}, make([]byte, 12)...), 0755); err != nil {
 		t.Fatal(err)
 	}
-	launcher := filepath.Join(root, "firefox.launcher")
+	launcher := filepath.Join(revisionRoot, "firefox.launcher")
 	if err := os.WriteFile(launcher, []byte("#!/bin/sh\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
+	current := filepath.Join(packageRoot, "current")
+	if err := os.Symlink("100", current); err != nil {
+		t.Fatal(err)
+	}
 	var results []discoveredApplication
-	discoverSnapPackage(root, "firefox", "firefox", func(result discoveredApplication) { results = append(results, result) })
-	if len(results) != 1 || results[0].Executable != actual {
+	discoverSnapPackage(current, "firefox", "firefox", func(result discoveredApplication) { results = append(results, result) })
+	stable := filepath.Join(current, "usr", "lib", "firefox", "firefox")
+	if len(results) != 1 || results[0].Executable != stable {
 		t.Fatalf("unexpected Snap discovery results: %#v", results)
 	}
 	if _, valid := nativeExecutable(results[0].Executable); !valid {

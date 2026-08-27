@@ -32,10 +32,11 @@ process, but they do not make it equivalent to an unprivileged service.
 
 ## Limitations
 
-Rules match the kernel-resolved executable path. A copy at another path, an
+Native rules match the kernel-resolved executable path. A copy at another path, an
 interpreter, another launcher, a container, Wine, a virtual machine, or remote
 execution can bypass a rule. Snap launcher paths are resolved by discovery to
-the package's real ELF executables. Other sandboxed applications may expose
+stable package-relative ELF identities, which match installed numeric revisions
+before and after a refresh. Other sandboxed applications may expose
 namespace-specific paths that cannot be matched reliably. Restricting those
 mechanisms is administrator policy and is outside this service.
 

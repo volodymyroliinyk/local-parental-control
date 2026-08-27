@@ -82,6 +82,12 @@ Recommended change:
 
 Severity: **High**
 
+Status: **Resolved on 2026-08-27.** Discovery now emits stable
+`/snap/PACKAGE/current/...` identities. Secure loading migrates previously
+discovered numeric-revision paths to that form and validates the current ELF.
+Runtime matching uses the package and relative executable path while accepting
+both old and new numeric revisions across a refresh.
+
 Discovery walks `/snap/PACKAGE/current`, resolves it to a numbered revision,
 and prints executable paths from that revision. Secure configuration loading
 also resolves symlinks and stores the canonical revision path in the daemon's

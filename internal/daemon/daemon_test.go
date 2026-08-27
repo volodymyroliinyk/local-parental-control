@@ -603,6 +603,19 @@ func TestFindApplicationUsesExactCleanPath(t *testing.T) {
 	}
 }
 
+func TestFindApplicationMatchesSnapBeforeAndAfterRefresh(t *testing.T) {
+	uc := config.UserConfig{Applications: []config.Application{{ID: "firefox", Executables: []string{"/snap/firefox/current/usr/lib/firefox/firefox"}}}}
+	for _, executable := range []string{
+		"/snap/firefox/100/usr/lib/firefox/firefox",
+		"/snap/firefox/101/usr/lib/firefox/firefox",
+	} {
+		app, ok := findApplication(uc, executable)
+		if !ok || app.ID != "firefox" {
+			t.Fatalf("Snap process %q was not matched after revision change", executable)
+		}
+	}
+}
+
 func basicConfig() *config.Config {
 	return &config.Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]config.UserConfig{"child": {DailyDeviceMinutes: 60, ContinuousUseMinutes: 60, BreakMinutes: 10, AllowedFrom: "00:00", AllowedUntil: "23:59", Applications: []config.Application{{ID: "app", Name: "App", Executables: []string{"/opt/app"}, DailyMinutes: 1}}}}}
 }

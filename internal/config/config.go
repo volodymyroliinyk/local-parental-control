@@ -114,12 +114,22 @@ func validateSecureFile(path string, expectedUID uint32, expectedMode os.FileMod
 }
 
 func (c *Config) validateExecutables(expectedUID uint32) error {
+	return c.validateExecutablesAt(expectedUID, "/snap")
+}
+
+func (c *Config) validateExecutablesAt(expectedUID uint32, snapRoot string) error {
 	for username, userConfig := range c.Users {
 		seen := make(map[string]bool)
 		for appIndex := range userConfig.Applications {
 			app := &userConfig.Applications[appIndex]
 			for pathIndex, executable := range app.Executables {
-				resolved, err := filepath.EvalSymlinks(executable)
+				stored := ""
+				validationPath := executable
+				if stable, ok := stableSnapExecutable(executable, snapRoot); ok {
+					stored = stable
+					validationPath = stable
+				}
+				resolved, err := filepath.EvalSymlinks(validationPath)
 				if err != nil {
 					return fmt.Errorf("application %q executable %q: %w", app.ID, executable, err)
 				}
@@ -141,17 +151,81 @@ func (c *Config) validateExecutables(expectedUID uint32) error {
 				if !isELF {
 					return fmt.Errorf("application %q executable %q is not a native ELF executable; scripts and application launchers cannot be matched through /proc/PID/exe", app.ID, executable)
 				}
-				resolved = filepath.Clean(resolved)
-				if seen[resolved] {
-					return fmt.Errorf("resolved executable %q appears in multiple rules for user %q", resolved, username)
+				if stored == "" {
+					stored = filepath.Clean(resolved)
 				}
-				seen[resolved] = true
-				app.Executables[pathIndex] = resolved
+				if seen[stored] {
+					return fmt.Errorf("resolved executable %q appears in multiple rules for user %q", stored, username)
+				}
+				seen[stored] = true
+				app.Executables[pathIndex] = stored
 			}
 		}
 		c.Users[username] = userConfig
 	}
 	return nil
+}
+
+func stableSnapExecutable(executable, snapRoot string) (string, bool) {
+	clean := filepath.Clean(executable)
+	relative, err := filepath.Rel(filepath.Clean(snapRoot), clean)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	parts := strings.Split(relative, string(filepath.Separator))
+	if len(parts) < 3 || parts[0] == "" {
+		return "", false
+	}
+	revision := parts[1]
+	if revision != "current" && !validSnapRevision(revision) {
+		return "", false
+	}
+	parts[1] = "current"
+	return filepath.Join(append([]string{filepath.Clean(snapRoot)}, parts...)...), true
+}
+
+// ExecutableMatches compares a configured executable identity with the
+// kernel-resolved path of a running process. Snap identities intentionally
+// ignore the numeric revision so refreshes do not create an enforcement gap.
+func ExecutableMatches(configured, running string) bool {
+	configured = filepath.Clean(configured)
+	running = filepath.Clean(running)
+	if configured == running {
+		return true
+	}
+	configuredParts, configuredOK := snapExecutableParts(configured, true)
+	runningParts, runningOK := snapExecutableParts(running, false)
+	return configuredOK && runningOK && configuredParts == runningParts
+}
+
+func snapExecutableParts(path string, stable bool) (string, bool) {
+	relative, err := filepath.Rel("/snap", filepath.Clean(path))
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	parts := strings.Split(relative, string(filepath.Separator))
+	if len(parts) < 3 || parts[0] == "" {
+		return "", false
+	}
+	if stable {
+		if parts[1] != "current" {
+			return "", false
+		}
+	} else if !validSnapRevision(parts[1]) {
+		return "", false
+	}
+	return parts[0] + "\x00" + strings.Join(parts[2:], "/"), true
+}
+
+func validSnapRevision(revision string) bool {
+	if strings.HasPrefix(revision, "x") {
+		revision = strings.TrimPrefix(revision, "x")
+	}
+	if revision == "" {
+		return false
+	}
+	_, err := strconv.ParseUint(revision, 10, 64)
+	return err == nil
 }
 
 func hasELFHeader(path string) (bool, error) {

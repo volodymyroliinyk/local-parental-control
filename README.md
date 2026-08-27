@@ -66,10 +66,12 @@ Important details:
 
 - Usernames must already exist when configuration is validated or loaded.
 - Each executable path must be absolute and unique within a user's rules.
-- Executables are resolved through symlinks when the production configuration
-  is loaded. The resolved file must be an ELF binary owned by root, executable,
-  regular, and not writable by group or other users. Use `lpctl discover`
-  instead of launcher paths such as `/snap/bin/firefox`.
+- Native executables are resolved through symlinks when the production
+  configuration is loaded. Snap executables retain the stable
+  `/snap/PACKAGE/current/...` identity emitted by `lpctl discover`. In both
+  cases, the current resolved file must be an ELF binary owned by root,
+  executable, regular, and not writable by group or other users. Do not use
+  launcher paths such as `/snap/bin/firefox`.
 - Put all real executables used by an application in the same rule. Wrapper scripts and `.desktop` files are not executable identities.
 - Use `readlink -f /proc/PID/exe` while an application runs to discover its actual executable.
 - `daily_device_minutes` is required and must be 1–1440 minutes.
@@ -101,10 +103,13 @@ to leave the screen for 5–10 minutes each hour. It is separate from short
 eye-rest reminders such as the 20-20-20 rule.
 
 Snap launcher paths under `/snap/bin` are not process identities. The
-`lpctl discover` command resolves installed Snap packages to their real ELF
-executables under `/snap/PACKAGE/REVISION`; copy the returned paths into the
-configuration. Do not put a shared executable such as `/usr/bin/java` in a rule
-unless all programs using it should share that limit.
+`lpctl discover` command resolves installed Snap packages to stable real-ELF
+identities under `/snap/PACKAGE/current`. The daemon matches the same package
+and relative executable path across numeric Snap revisions, so automatic Snap
+refreshes do not require rediscovery or reload. Previously configured numeric
+revision paths are migrated during secure configuration loading. Do not put a
+shared executable such as `/usr/bin/java` in a rule unless all programs using
+it should share that limit.
 
 ## Install
 
@@ -153,9 +158,10 @@ sudo journalctl -u local-parental-control.service
 ```
 
 `lpctl discover KEYWORD` searches `PATH`, native package databases, and
-installed Snap packages. Every returned `supported` path is a real ELF
+installed Snap packages. Every returned `supported` path identifies a real ELF
 executable suitable for an `executables` array. The command never prints
-launcher paths such as `/snap/bin/firefox`.
+launcher paths such as `/snap/bin/firefox`. Snap results use stable
+`/snap/PACKAGE/current/...` identities that continue matching after refreshes.
 
 If a new configuration is invalid, `reload` reports an error and the daemon
 continues using the previous rules. A successful `reload` applies changes

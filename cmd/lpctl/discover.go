@@ -155,7 +155,10 @@ func discoverSnapPackage(root, pkg, keyword string, add func(discoveredApplicati
 			return nil
 		}
 		if executable, valid := nativeExecutable(path); valid {
-			add(discoveredApplication{Source: "snap", Package: pkg, Executable: executable})
+			relative, relErr := filepath.Rel(resolvedRoot, executable)
+			if relErr == nil && relative != "." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+				add(discoveredApplication{Source: "snap", Package: pkg, Executable: filepath.Join(root, relative)})
+			}
 		}
 		return nil
 	})

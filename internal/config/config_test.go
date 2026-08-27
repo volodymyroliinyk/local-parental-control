@@ -277,6 +277,72 @@ func TestValidateExecutablesCanonicalizesSystemBinaryAndRejectsWritableFile(t *t
 	}
 }
 
+func TestValidateExecutablesNormalizesSnapRevisionAndMatchesRefresh(t *testing.T) {
+	username := currentUser(t).Username
+	snapRoot := t.TempDir()
+	revisionA := filepath.Join(snapRoot, "firefox", "100")
+	revisionB := filepath.Join(snapRoot, "firefox", "101")
+	relative := filepath.Join("usr", "lib", "firefox", "firefox")
+	for _, revision := range []string{revisionA, revisionB} {
+		path := filepath.Join(revision, relative)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, append([]byte{0x7f, 'E', 'L', 'F'}, make([]byte, 12)...), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current := filepath.Join(snapRoot, "firefox", "current")
+	if err := os.Symlink("100", current); err != nil {
+		t.Fatal(err)
+	}
+	configuredRevision := filepath.Join(revisionA, relative)
+	cfg := Config{Users: map[string]UserConfig{username: {Applications: []Application{{ID: "firefox", Executables: []string{configuredRevision}}}}}}
+	info, err := os.Stat(configuredRevision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.validateExecutablesAt(info.Sys().(*syscall.Stat_t).Uid, snapRoot); err != nil {
+		t.Fatal(err)
+	}
+	stable := filepath.Join(current, relative)
+	if got := cfg.Users[username].Applications[0].Executables[0]; got != stable {
+		t.Fatalf("normalized executable = %q, want %q", got, stable)
+	}
+	if err := os.Remove(current); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("101", current); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := filepath.EvalSymlinks(stable)
+	if err != nil || resolved != filepath.Join(revisionB, relative) {
+		t.Fatalf("stable executable after refresh = %q, %v", resolved, err)
+	}
+}
+
+func TestExecutableMatchesSnapRevisions(t *testing.T) {
+	configured := "/snap/firefox/current/usr/lib/firefox/firefox"
+	for _, running := range []string{
+		"/snap/firefox/100/usr/lib/firefox/firefox",
+		"/snap/firefox/101/usr/lib/firefox/firefox",
+		"/snap/firefox/x2/usr/lib/firefox/firefox",
+	} {
+		if !ExecutableMatches(configured, running) {
+			t.Fatalf("configured %q did not match %q", configured, running)
+		}
+	}
+	for _, running := range []string{
+		"/snap/firefox/not-a-revision/usr/lib/firefox/firefox",
+		"/snap/chromium/101/usr/lib/firefox/firefox",
+		"/snap/firefox/101/usr/lib/firefox/helper",
+	} {
+		if ExecutableMatches(configured, running) {
+			t.Fatalf("configured %q unexpectedly matched %q", configured, running)
+		}
+	}
+}
+
 func TestValidateExecutablesRejectsScriptAndSnapLauncher(t *testing.T) {
 	username := currentUser(t).Username
 	owner := uint32(os.Geteuid())

@@ -260,10 +260,9 @@ func (s *Service) lock(uid uint32, username, reason string) {
 }
 
 func findApplication(uc config.UserConfig, executable string) (config.Application, bool) {
-	clean := filepath.Clean(executable)
 	for _, app := range uc.Applications {
 		for _, candidate := range app.Executables {
-			if filepath.Clean(candidate) == clean {
+			if config.ExecutableMatches(candidate, executable) {
 				return app, true
 			}
 		}

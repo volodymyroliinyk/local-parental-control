@@ -101,9 +101,10 @@ sudo lpctl reload
 ```
 
 Every printed `supported` path can be copied into `executables`. Discovery
-resolves Snap launchers to real files under `/snap/PACKAGE/REVISION`; never use
-`/snap/bin/*` manually. Add every returned executable used by the application
-to the same rule.
+resolves Snap launchers to stable real-ELF identities under
+`/snap/PACKAGE/current`; never use `/snap/bin/*` manually. These identities
+continue matching after Snap refreshes. Add every returned executable used by
+the application to the same rule.
 
 ## Administration
 
