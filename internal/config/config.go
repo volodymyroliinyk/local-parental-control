@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -199,12 +201,18 @@ func (c *Config) Validate() error {
 	if len(c.Users) == 0 {
 		return errors.New("at least one user is required")
 	}
-	for username, uc := range c.Users {
+	usernames := make([]string, 0, len(c.Users))
+	for username := range c.Users {
+		usernames = append(usernames, username)
+	}
+	sort.Strings(usernames)
+	if err := validateUniqueUserIDs(usernames, user.Lookup); err != nil {
+		return err
+	}
+	for _, username := range usernames {
+		uc := c.Users[username]
 		if strings.TrimSpace(username) == "" {
 			return errors.New("empty username")
-		}
-		if _, err := user.Lookup(username); err != nil {
-			return fmt.Errorf("user %q does not exist: %w", username, err)
 		}
 		if uc.DailyDeviceMinutes < 1 || uc.DailyDeviceMinutes > 1440 {
 			return fmt.Errorf("users.%s.daily_device_minutes must be between 1 and 1440", username)
@@ -256,6 +264,29 @@ func (c *Config) Validate() error {
 				paths[clean] = true
 			}
 		}
+	}
+	return nil
+}
+
+func validateUniqueUserIDs(usernames []string, lookup func(string) (*user.User, error)) error {
+	resolved := make(map[uint32]string, len(usernames))
+	for _, username := range usernames {
+		if strings.TrimSpace(username) == "" {
+			return errors.New("empty username")
+		}
+		u, err := lookup(username)
+		if err != nil {
+			return fmt.Errorf("user %q does not exist: %w", username, err)
+		}
+		id, err := strconv.ParseUint(u.Uid, 10, 32)
+		if err != nil {
+			return fmt.Errorf("user %q has invalid numeric UID %q: %w", username, u.Uid, err)
+		}
+		uid := uint32(id)
+		if other, ok := resolved[uid]; ok {
+			return fmt.Errorf("users %q and %q resolve to the same numeric UID %d", other, username, uid)
+		}
+		resolved[uid] = username
 	}
 	return nil
 }

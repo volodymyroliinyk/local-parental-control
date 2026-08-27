@@ -42,6 +42,7 @@ type Service struct {
 	authorizePeer                     func(net.Conn) error
 	peerUID                           func(net.Conn) (uint32, error)
 	sessions                          sessionController
+	lookupUser                        func(string) (*user.User, error)
 }
 
 type pendingTermination struct {
@@ -55,7 +56,7 @@ func New(cfg *config.Config, configPath, statePath, socketPath, statusSocketPath
 	if err != nil {
 		return nil, err
 	}
-	s := &Service{cfg: cfg, configPath: configPath, statePath: statePath, socketPath: socketPath, statusSocketPath: statusSocketPath, state: state, scanner: proc.NewScanner(), logger: logger, pendingKill: make(map[int]pendingTermination), sessions: loginctlController{}, now: time.Now, loadConfig: config.LoadSecure, authorizePeer: authorizeRootPeer, peerUID: unixPeerUID, lastTick: now}
+	s := &Service{cfg: cfg, configPath: configPath, statePath: statePath, socketPath: socketPath, statusSocketPath: statusSocketPath, state: state, scanner: proc.NewScanner(), logger: logger, pendingKill: make(map[int]pendingTermination), sessions: loginctlController{}, now: time.Now, loadConfig: config.LoadSecure, authorizePeer: authorizeRootPeer, peerUID: unixPeerUID, lookupUser: user.Lookup, lastTick: now}
 	if err := s.resolveUsers(); err != nil {
 		return nil, err
 	}
@@ -64,16 +65,25 @@ func New(cfg *config.Config, configPath, statePath, socketPath, statusSocketPath
 
 func (s *Service) resolveUsers() error {
 	resolved := make(map[uint32]string)
+	names := make([]string, 0, len(s.cfg.Users))
 	for name := range s.cfg.Users {
-		u, err := user.Lookup(name)
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		u, err := s.lookupUser(name)
 		if err != nil {
-			return err
+			return fmt.Errorf("resolve user %q: %w", name, err)
 		}
 		id, err := strconv.ParseUint(u.Uid, 10, 32)
 		if err != nil {
-			return err
+			return fmt.Errorf("user %q has invalid numeric UID %q: %w", name, u.Uid, err)
 		}
-		resolved[uint32(id)] = name
+		uid := uint32(id)
+		if other, ok := resolved[uid]; ok {
+			return fmt.Errorf("users %q and %q resolve to the same numeric UID %d", other, name, uid)
+		}
+		resolved[uid] = name
 	}
 	s.uidUsers = resolved
 	return nil

@@ -46,6 +46,10 @@ Severity means:
 
 Severity: **High**
 
+Status: **Resolved on 2026-08-27.** Configuration validation, daemon startup,
+and reload now reject duplicate numeric UIDs. Reload retains the active
+configuration when the replacement is rejected.
+
 Configuration is keyed by username and validates that every name exists, but it
 does not require each name to resolve to a distinct numeric UID. During service
 initialization and reload, `resolveUsers` stores one username per UID in a Go
@@ -296,4 +300,3 @@ The following behaviors are deliberate or already clearly documented:
 - failed reload retains the previous active configuration;
 - administrative reset does not override an out-of-hours schedule;
 - screen locking depends on the desktop honoring systemd-logind requests.
-

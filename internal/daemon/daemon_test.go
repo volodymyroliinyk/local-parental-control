@@ -10,6 +10,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -397,6 +398,35 @@ func TestExecuteReloadIsTransactional(t *testing.T) {
 	}
 }
 
+func TestResolveUsersRejectsDuplicateNumericUID(t *testing.T) {
+	s := testService(t, time.Now(), basicConfig(), &fakeScanner{})
+	s.cfg.Users["alias"] = s.cfg.Users["child"]
+	s.lookupUser = func(username string) (*user.User, error) {
+		return &user.User{Username: username, Uid: "1000"}, nil
+	}
+	if err := s.resolveUsers(); err == nil || !strings.Contains(err.Error(), `users "alias" and "child" resolve to the same numeric UID 1000`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestReloadRejectsDuplicateNumericUIDTransactionally(t *testing.T) {
+	s := testService(t, time.Now(), basicConfig(), &fakeScanner{})
+	s.lookupUser = func(username string) (*user.User, error) {
+		return &user.User{Username: username, Uid: "1000"}, nil
+	}
+	duplicate := basicConfig()
+	duplicate.Users["alias"] = duplicate.Users["child"]
+	s.loadConfig = func(string) (*config.Config, error) { return duplicate, nil }
+
+	response := s.execute(api.Request{Command: "reload"})
+	if response.OK || !strings.Contains(response.Error, "same numeric UID 1000") {
+		t.Fatalf("unexpected reload response: %+v", response)
+	}
+	if len(s.cfg.Users) != 1 || s.uidUsers[1000] != "child" {
+		t.Fatalf("invalid reload changed active configuration: cfg=%+v uidUsers=%+v", s.cfg, s.uidUsers)
+	}
+}
+
 func TestAdministrativeSocketPermissionsAndRequest(t *testing.T) {
 	start := time.Now()
 	s := testService(t, start, basicConfig(), &fakeScanner{})
@@ -593,5 +623,6 @@ func testService(t *testing.T, start time.Time, cfg *config.Config, scanner proc
 		loadConfig:    config.Load,
 		authorizePeer: func(net.Conn) error { return nil },
 		peerUID:       func(net.Conn) (uint32, error) { return 1000, nil },
+		lookupUser:    user.Lookup,
 	}
 }

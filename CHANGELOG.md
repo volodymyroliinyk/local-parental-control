@@ -43,6 +43,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- Configuration now rejects different usernames that resolve to the same numeric UID, preventing nondeterministic rule selection at startup and reload.
+
 - AppArmor now permits the complete systemd-logind lookup sequence used by loginctl before locking controlled graphical sessions.
 
 - AppArmor now allows loginctl to bind its private system-bus client socket, restoring session-state queries and screen locking under confinement.

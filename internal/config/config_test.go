@@ -48,6 +48,16 @@ func TestValidateRejectsDuplicateExecutable(t *testing.T) {
 	}
 }
 
+func TestValidateUniqueUserIDsRejectsAliases(t *testing.T) {
+	lookup := func(username string) (*user.User, error) {
+		return &user.User{Username: username, Uid: "1000"}, nil
+	}
+	err := validateUniqueUserIDs([]string{"alias-a", "alias-b"}, lookup)
+	if err == nil || !strings.Contains(err.Error(), `users "alias-a" and "alias-b" resolve to the same numeric UID 1000`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestLoadRejectsMalformedAndTrailingJSON(t *testing.T) {
 	current := currentUser(t)
 	valid := `{"users":{"` + current.Username + `":{"daily_device_minutes":120,"allowed_from":"08:00","allowed_until":"20:00","applications":[{"id":"app","name":"App","executables":["/usr/bin/app"],"daily_minutes":1}]}}}`
