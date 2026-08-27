@@ -142,6 +142,9 @@ Wayland and X11 when both are supported.
 | DEV-18 | Restart after midnight | Stop before midnight and start after midnight with the prior day's state file. | Service starts with fresh counters for the new configured local date. | | |
 | DEV-19 | Independent users | Configure two controlled users and accrue or exhaust usage for only one. | Each user's counters, schedule, breaks, and enforcement remain independent. | | |
 | DEV-20 | Session query failure | In a disposable setup, make logind session-state lookup fail and wait several polls. | Usage pauses, service remains running, and a warning is recorded; time is not guessed. | | |
+| DEV-21 | Allowed-start interval accounting | Use a long poll that begins before `allowed_from` and ends after it. | Only whole seconds after the configured start are charged. | | |
+| DEV-22 | Allowed-end interval accounting | Use a long poll that begins before `allowed_until` and ends after it. | Only whole seconds before the configured end are charged, then access locks. | | |
+| DEV-23 | Midnight interval accounting | Keep an eligible session active across local midnight. | Prior-day seconds are not assigned to the new day; only the post-midnight portion is charged. | | |
 | DEV-21 | Desktop refuses lock request | Test on a desktop/session known not to honor logind locking, if available. | Service records a lock error and remains running; documentation limitation is observable. | | |
 
 ## Continuous use and mandatory breaks
@@ -185,6 +188,8 @@ Wayland and X11 when both are supported.
 | APP-16 | Unknown application reset | Reset a nonexistent app ID. | Command fails and no counters change. | | |
 | APP-17 | Same executable path for different users | Configure the same root-owned executable for two users and use it under only one UID. | Only the process owner's rule and counter are affected. | | |
 | APP-18 | Executable copied to another path | Run a copy of a configured executable from an unconfigured path in a disposable setup. | It does not match the original rule, demonstrating the documented path-identity limitation. | | |
+| APP-19 | First process observation | Launch an application just before a poll and compare two subsequent status samples. | No time before first observation is charged; seconds accrue after the application is observed in consecutive samples. | | |
+| APP-20 | Process exit between polls | Exit an application between samples. | The uncertain final interval is not charged, preventing time after exit from being fabricated. | | |
 | APP-19 | Deleted/replaced executable while running | Replace or remove a configured executable after starting it, where safe. | Daemon remains stable; matching follows the kernel-resolved process executable identity and configuration constraints. | | |
 | APP-20 | PID reuse safety | During a delayed termination test, let the original process exit and create process churn before the grace deadline. | A different process that reuses the numeric PID is not killed. | | |
 

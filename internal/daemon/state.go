@@ -142,6 +142,9 @@ func (s *Service) recoverState() (string, error) {
 		return "", err
 	}
 	s.recovery = nil
+	s.lastTick = s.now()
+	s.previousUsers = make(map[string]bool)
+	s.previousApps = make(map[string]map[string]bool)
 	if quarantine != "" {
 		return fmt.Sprintf("usage state reset; invalid state preserved at %s", quarantine), nil
 	}
@@ -162,6 +165,9 @@ func (s *Service) retryStatePersistence() error {
 		return err
 	}
 	s.recovery = nil
+	s.lastTick = s.now()
+	s.previousUsers = make(map[string]bool)
+	s.previousApps = make(map[string]map[string]bool)
 	return nil
 }
 

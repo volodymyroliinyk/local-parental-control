@@ -47,6 +47,11 @@ namespace-specific paths that cannot be matched reliably. Restricting those
 mechanisms is administrator policy and is outside this service.
 
 Polling allows an over-limit application or login session to run for up to one poll interval.
+Usage is stored as seconds even though limits and schedules are configured in
+minutes. Known wall-clock boundaries are applied exactly. Unknown process or
+session transitions between polls are handled conservatively: an interval is
+charged only when activity is observed at both endpoints, avoiding fabricated
+usage at the cost of at most one polling interval of undercount.
 After the configured grace period, `SIGKILL` can cause unsaved application data
 to be lost. Screen locking preserves running programs, but it depends on the
 desktop environment honoring systemd-logind's lock request. Usage accounting

@@ -44,6 +44,8 @@ type Service struct {
 	sessions                          sessionController
 	lookupUser                        func(string) (*user.User, error)
 	recovery                          *stateRecovery
+	previousUsers                     map[string]bool
+	previousApps                      map[string]map[string]bool
 }
 
 type pendingTermination struct {
@@ -60,7 +62,7 @@ func New(cfg *config.Config, configPath, statePath, socketPath, statusSocketPath
 	now := time.Now()
 	date := now.In(cfg.Location()).Format("2006-01-02")
 	state, recovery := loadServiceState(statePath, date)
-	s := &Service{cfg: cfg, configPath: configPath, statePath: statePath, socketPath: socketPath, statusSocketPath: statusSocketPath, state: state, scanner: proc.NewScanner(), logger: logger, pendingKill: make(map[int]pendingTermination), sessions: loginctlController{}, now: time.Now, loadConfig: config.LoadSecure, authorizePeer: authorizeRootPeer, peerUID: unixPeerUID, lookupUser: user.Lookup, lastTick: now}
+	s := &Service{cfg: cfg, configPath: configPath, statePath: statePath, socketPath: socketPath, statusSocketPath: statusSocketPath, state: state, scanner: proc.NewScanner(), logger: logger, pendingKill: make(map[int]pendingTermination), sessions: loginctlController{}, now: time.Now, loadConfig: config.LoadSecure, authorizePeer: authorizeRootPeer, peerUID: unixPeerUID, lookupUser: user.Lookup, lastTick: now, previousUsers: make(map[string]bool), previousApps: make(map[string]map[string]bool)}
 	s.recovery = recovery
 	if err := s.resolveUsers(); err != nil {
 		return nil, err
@@ -154,22 +156,29 @@ func (s *Service) tick() error {
 		}
 		return nil
 	}
+	intervalStart := s.lastTick
 	date := now.In(s.cfg.Location()).Format("2006-01-02")
 	if s.state.Date != date {
 		s.state = newState(date)
 		s.logger.Info("daily usage counters reset", "date", date)
+		localNow := now.In(s.cfg.Location())
+		midnight := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, s.cfg.Location())
+		if intervalStart.Before(midnight) {
+			intervalStart = midnight
+		}
 	}
-	delta := now.Sub(s.lastTick)
 	s.lastTick = now
 	maxDelta := 2 * time.Duration(s.cfg.PollIntervalSeconds) * time.Second
-	if delta < 0 {
-		delta = 0
+	if intervalStart.After(now) {
+		intervalStart = now
 	}
-	if delta > maxDelta {
-		delta = maxDelta
+	if now.Sub(intervalStart) > maxDelta {
+		intervalStart = now.Add(-maxDelta)
 	}
 	processes, err := s.scanner.Scan()
 	if err != nil {
+		s.previousUsers = make(map[string]bool)
+		s.previousApps = make(map[string]map[string]bool)
 		return err
 	}
 	defer func() {
@@ -203,12 +212,23 @@ func (s *Service) tick() error {
 		}
 		active[username][app.ID] = true
 	}
-	seconds := int64(delta / time.Second)
-	countingUsers := make(map[string]bool)
+	unlockedUsers := make(map[string]bool)
+	for username, uid := range activeUsers {
+		unlocked, err := s.sessions.Unlocked(uid)
+		if err != nil {
+			s.logger.Warn("session state unavailable; usage paused", "user", username, "uid", uid, "error", err)
+			continue
+		}
+		unlockedUsers[username] = unlocked
+	}
+	countedSeconds := make(map[string]int64)
 	for username, uid := range activeUsers {
 		uc := s.cfg.Users[username]
-		used := s.state.DeviceSeconds[username]
-		if !uc.AllowedAt(now.In(s.cfg.Location())) || used >= int64(uc.DailyDeviceMinutes*60) {
+		intervalFrom, intervalUntil, eligible := accountingInterval(intervalStart, now, uc, s.cfg.Location())
+		if s.previousUsers[username] && unlockedUsers[username] && eligible {
+			countedSeconds[username] = s.accountUserInterval(username, uc, intervalFrom, intervalUntil)
+		}
+		if !uc.AllowedAt(now.In(s.cfg.Location())) || s.state.DeviceSeconds[username] >= int64(uc.DailyDeviceMinutes*60) {
 			s.state.ContinuousSeconds[username] = 0
 			delete(s.state.BreakUntil, username)
 			s.lock(uid, username, "device access limit")
@@ -222,35 +242,23 @@ func (s *Service) tick() error {
 			delete(s.state.BreakUntil, username)
 			s.state.ContinuousSeconds[username] = 0
 		}
-		unlocked, err := s.sessions.Unlocked(uid)
-		if err != nil {
-			s.logger.Warn("session state unavailable; usage paused", "user", username, "uid", uid, "error", err)
-			continue
-		}
-		if !unlocked {
-			continue
-		}
-		countingUsers[username] = true
-		s.state.DeviceSeconds[username] += seconds
-		s.state.ContinuousSeconds[username] += seconds
-		if s.state.DeviceSeconds[username] >= int64(uc.DailyDeviceMinutes*60) {
-			s.lock(uid, username, "daily device limit")
-			continue
-		}
-		if s.state.ContinuousSeconds[username] >= int64(uc.ContinuousUseMinutes*60) {
-			s.state.ContinuousSeconds[username] = 0
-			s.state.BreakUntil[username] = now.Add(time.Duration(uc.BreakMinutes) * time.Minute)
-			s.lock(uid, username, "mandatory break")
-		}
 	}
 	for username, apps := range active {
-		if !countingUsers[username] {
+		seconds := countedSeconds[username]
+		if seconds == 0 {
 			continue
 		}
 		for appID := range apps {
-			s.add(username, appID, seconds)
+			if s.previousApps[username][appID] {
+				s.add(username, appID, seconds)
+			}
 		}
 	}
+	s.previousUsers = make(map[string]bool, len(activeUsers))
+	for username := range activeUsers {
+		s.previousUsers[username] = unlockedUsers[username]
+	}
+	s.previousApps = active
 	// Enforce immediately when this tick consumes the remaining allowance.
 	for _, p := range processes {
 		username, monitored := s.uidUsers[p.UID]
@@ -305,6 +313,63 @@ func findApplication(uc config.UserConfig, executable string) (config.Applicatio
 		}
 	}
 	return config.Application{}, false
+}
+
+func accountingInterval(start, end time.Time, uc config.UserConfig, location *time.Location) (time.Time, time.Time, bool) {
+	if !start.Before(end) {
+		return end, end, false
+	}
+	localEnd := end.In(location)
+	dayStart := time.Date(localEnd.Year(), localEnd.Month(), localEnd.Day(), 0, 0, 0, 0, location)
+	fromClock, _ := time.Parse("15:04", uc.AllowedFrom)
+	untilClock, _ := time.Parse("15:04", uc.AllowedUntil)
+	allowedFrom := dayStart.Add(time.Duration(fromClock.Hour()*60+fromClock.Minute()) * time.Minute)
+	allowedUntil := dayStart.Add(time.Duration(untilClock.Hour()*60+untilClock.Minute()) * time.Minute)
+	if start.Before(allowedFrom) {
+		start = allowedFrom
+	}
+	if end.After(allowedUntil) {
+		end = allowedUntil
+	}
+	return start, end, start.Before(end)
+}
+
+func (s *Service) accountUserInterval(username string, uc config.UserConfig, start, end time.Time) int64 {
+	deviceLimit := int64(uc.DailyDeviceMinutes * 60)
+	continuousLimit := int64(uc.ContinuousUseMinutes * 60)
+	counted := int64(0)
+	for start.Before(end) && s.state.DeviceSeconds[username] < deviceLimit {
+		if until, onBreak := s.state.BreakUntil[username]; onBreak {
+			if start.Before(until) {
+				if !until.Before(end) {
+					return counted
+				}
+				start = until
+			}
+			delete(s.state.BreakUntil, username)
+			s.state.ContinuousSeconds[username] = 0
+			continue
+		}
+		seconds := int64(end.Sub(start) / time.Second)
+		if seconds <= 0 {
+			break
+		}
+		if remaining := deviceLimit - s.state.DeviceSeconds[username]; seconds > remaining {
+			seconds = remaining
+		}
+		if remaining := continuousLimit - s.state.ContinuousSeconds[username]; seconds > remaining {
+			seconds = remaining
+		}
+		s.state.DeviceSeconds[username] += seconds
+		s.state.ContinuousSeconds[username] += seconds
+		counted += seconds
+		start = start.Add(time.Duration(seconds) * time.Second)
+		if s.state.ContinuousSeconds[username] >= continuousLimit {
+			s.state.ContinuousSeconds[username] = 0
+			s.state.BreakUntil[username] = start.Add(time.Duration(uc.BreakMinutes) * time.Minute)
+		}
+	}
+	return counted
 }
 
 func (s *Service) terminate(p proc.Info, now time.Time) {
@@ -530,6 +595,8 @@ func (s *Service) execute(req api.Request) api.Response {
 		}
 		// A raised limit or removed rule must cancel previously scheduled kills.
 		s.pendingKill = make(map[int]pendingTermination)
+		s.previousUsers = make(map[string]bool)
+		s.previousApps = make(map[string]map[string]bool)
 		return api.Response{OK: true, Message: "configuration reloaded"}
 	case "recover-state":
 		if s.recovery == nil {

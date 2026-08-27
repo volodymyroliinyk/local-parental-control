@@ -62,7 +62,7 @@ func TestTickCountsApplicationOnceAndEnforcesLimit(t *testing.T) {
 	now := start
 	cfg := &config.Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]config.UserConfig{"child": {DailyDeviceMinutes: 60, ContinuousUseMinutes: 60, BreakMinutes: 10, AllowedFrom: "00:00", AllowedUntil: "23:59", Applications: []config.Application{{ID: "game", Name: "Game", Executables: []string{"/opt/game"}, DailyMinutes: 1}}}}}
 	fake := &fakeScanner{processes: []proc.Info{{PID: 1, UID: 1000, Executable: "/opt/game"}, {PID: 2, UID: 1000, Executable: "/opt/game"}}}
-	s := &Service{cfg: cfg, statePath: filepath.Join(t.TempDir(), "state", "state.json"), state: newState("2026-08-19"), scanner: fake, logger: slog.New(slog.NewTextHandler(io.Discard, nil)), uidUsers: map[uint32]string{1000: "child"}, pendingKill: map[int]pendingTermination{}, sessions: &fakeSessions{unlocked: true}, lastTick: start, now: func() time.Time { return now }}
+	s := &Service{cfg: cfg, statePath: filepath.Join(t.TempDir(), "state", "state.json"), state: newState("2026-08-19"), scanner: fake, logger: slog.New(slog.NewTextHandler(io.Discard, nil)), uidUsers: map[uint32]string{1000: "child"}, pendingKill: map[int]pendingTermination{}, sessions: &fakeSessions{unlocked: true}, lastTick: start, now: func() time.Time { return now }, previousUsers: map[string]bool{"child": true}, previousApps: map[string]map[string]bool{"child": {"game": true}}}
 	now = now.Add(2 * time.Second)
 	if err := s.tick(); err != nil {
 		t.Fatal(err)
@@ -155,11 +155,18 @@ func TestTickPausesUsageWhileSessionIsLocked(t *testing.T) {
 	if err := s.tick(); err != nil {
 		t.Fatal(err)
 	}
+	if got := s.state.DeviceSeconds["child"]; got != 30 {
+		t.Fatalf("unlock transition was charged = %d", got)
+	}
+	now = now.Add(2 * time.Second)
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
 	if got := s.state.DeviceSeconds["child"]; got != 32 {
-		t.Fatalf("device usage after unlock = %d, want 32", got)
+		t.Fatalf("device usage after stable unlock = %d, want 32", got)
 	}
 	if got := s.used("child", "app"); got != 32 {
-		t.Fatalf("application usage after unlock = %d, want 32", got)
+		t.Fatalf("application usage after stable unlock = %d, want 32", got)
 	}
 }
 
@@ -194,6 +201,93 @@ func TestTickLocksOutsideWindowWithoutCountingUsage(t *testing.T) {
 	}
 	if got := len(s.sessions.(*fakeSessions).uids); got != 1 {
 		t.Fatalf("lock count = %d", got)
+	}
+}
+
+func TestAccountingIntersectsScheduleBoundariesAndMidnight(t *testing.T) {
+	tests := []struct {
+		name, from, until string
+		start, end        time.Time
+		want              int64
+	}{
+		{name: "allowed start", from: "08:00", until: "20:00", start: time.Date(2026, 8, 27, 7, 59, 30, 0, time.UTC), end: time.Date(2026, 8, 27, 8, 0, 30, 0, time.UTC), want: 30},
+		{name: "allowed end", from: "08:00", until: "20:00", start: time.Date(2026, 8, 27, 19, 59, 30, 0, time.UTC), end: time.Date(2026, 8, 27, 20, 0, 30, 0, time.UTC), want: 30},
+		{name: "midnight", from: "00:00", until: "23:59", start: time.Date(2026, 8, 26, 23, 59, 30, 0, time.UTC), end: time.Date(2026, 8, 27, 0, 0, 30, 0, time.UTC), want: 30},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := basicConfig()
+			cfg.PollIntervalSeconds = 60
+			uc := cfg.Users["child"]
+			uc.AllowedFrom, uc.AllowedUntil = test.from, test.until
+			cfg.Users["child"] = uc
+			fake := &fakeScanner{processes: []proc.Info{{PID: 1, UID: 1000, Executable: "/opt/app"}}}
+			s := testService(t, test.start, cfg, fake)
+			s.now = func() time.Time { return test.end }
+			if err := s.tick(); err != nil {
+				t.Fatal(err)
+			}
+			if got := s.state.DeviceSeconds["child"]; got != test.want {
+				t.Fatalf("device seconds = %d, want %d", got, test.want)
+			}
+			if got := s.used("child", "app"); got != test.want {
+				t.Fatalf("application seconds = %d, want %d", got, test.want)
+			}
+		})
+	}
+}
+
+func TestNewApplicationIsNotChargedBeforeFirstObservation(t *testing.T) {
+	start := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	now := start.Add(60 * time.Second)
+	cfg := basicConfig()
+	cfg.PollIntervalSeconds = 60
+	fake := &fakeScanner{processes: []proc.Info{{PID: 1, UID: 1000, Executable: "/opt/app"}}}
+	s := testService(t, start, cfg, fake)
+	s.previousApps = make(map[string]map[string]bool)
+	s.now = func() time.Time { return now }
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.used("child", "app"); got != 0 {
+		t.Fatalf("new application was charged before observation: %d", got)
+	}
+	now = now.Add(60 * time.Second)
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.used("child", "app"); got != 60 {
+		t.Fatalf("stable application seconds = %d, want 60", got)
+	}
+}
+
+func TestAccountingSplitsIntervalAtNewBreak(t *testing.T) {
+	start := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	now := start.Add(2 * time.Minute)
+	cfg := basicConfig()
+	cfg.PollIntervalSeconds = 60
+	uc := cfg.Users["child"]
+	uc.ContinuousUseMinutes = 1
+	uc.BreakMinutes = 1
+	cfg.Users["child"] = uc
+	fake := &fakeScanner{processes: []proc.Info{{PID: 1, UID: 1000, Executable: "/opt/app"}}}
+	s := testService(t, start, cfg, fake)
+	s.state.ContinuousSeconds["child"] = 50
+	s.now = func() time.Time { return now }
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.state.DeviceSeconds["child"]; got != 60 {
+		t.Fatalf("device seconds = %d, want 60 (10 before break and 50 after)", got)
+	}
+	if got := s.state.ContinuousSeconds["child"]; got != 50 {
+		t.Fatalf("continuous seconds after completed break = %d, want 50", got)
+	}
+	if _, active := s.state.BreakUntil["child"]; active {
+		t.Fatal("completed break remains active")
+	}
+	if got := s.used("child", "app"); got != 60 {
+		t.Fatalf("application seconds = %d, want 60", got)
 	}
 }
 
@@ -250,7 +344,14 @@ func TestTickStartsAndEnforcesMandatoryBreak(t *testing.T) {
 	if _, active := s.state.BreakUntil["child"]; active {
 		t.Fatal("expired break remains active")
 	}
-	if s.state.ContinuousSeconds["child"] != 4 {
+	if s.state.ContinuousSeconds["child"] != 0 {
+		t.Fatalf("time before break deadline was charged: %d", s.state.ContinuousSeconds["child"])
+	}
+	now = now.Add(2 * time.Second)
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if s.state.ContinuousSeconds["child"] != 2 {
 		t.Fatalf("continuous usage after break = %d", s.state.ContinuousSeconds["child"])
 	}
 }
@@ -261,6 +362,26 @@ func TestTickReturnsScannerError(t *testing.T) {
 	s := testService(t, start, basicConfig(), &fakeScanner{scanErr: want})
 	if err := s.tick(); !errors.Is(err, want) {
 		t.Fatalf("tick error = %v, want %v", err, want)
+	}
+}
+
+func TestScannerFailureBreaksAccountingContinuity(t *testing.T) {
+	start := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	now := start.Add(2 * time.Second)
+	fake := &fakeScanner{scanErr: errors.New("proc unavailable")}
+	s := testService(t, start, basicConfig(), fake)
+	s.now = func() time.Time { return now }
+	if err := s.tick(); err == nil {
+		t.Fatal("expected scanner error")
+	}
+	fake.scanErr = nil
+	fake.processes = []proc.Info{{PID: 1, UID: 1000, Executable: "/opt/app"}}
+	now = now.Add(2 * time.Second)
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if s.state.DeviceSeconds["child"] != 0 || s.used("child", "app") != 0 {
+		t.Fatalf("unknown scanner interval was charged: %+v", s.state)
 	}
 }
 
@@ -718,6 +839,15 @@ func basicConfig() *config.Config {
 
 func testService(t *testing.T, start time.Time, cfg *config.Config, scanner proc.Scanner) *Service {
 	t.Helper()
+	previousUsers := make(map[string]bool, len(cfg.Users))
+	previousApps := make(map[string]map[string]bool, len(cfg.Users))
+	for username, uc := range cfg.Users {
+		previousUsers[username] = true
+		previousApps[username] = make(map[string]bool, len(uc.Applications))
+		for _, app := range uc.Applications {
+			previousApps[username][app.ID] = true
+		}
+	}
 	return &Service{
 		cfg:           cfg,
 		statePath:     filepath.Join(t.TempDir(), "state", "usage.json"),
@@ -733,5 +863,7 @@ func testService(t *testing.T, start time.Time, cfg *config.Config, scanner proc
 		authorizePeer: func(net.Conn) error { return nil },
 		peerUID:       func(net.Conn) (uint32, error) { return 1000, nil },
 		lookupUser:    user.Lookup,
+		previousUsers: previousUsers,
+		previousApps:  previousApps,
 	}
 }

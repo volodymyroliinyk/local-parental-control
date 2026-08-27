@@ -153,6 +153,14 @@ Recommended change:
 
 Severity: **Medium**
 
+Status: **Resolved on 2026-08-27.** Accounting now intersects every sampled
+interval with the current local day, the configured minute-based schedule, and
+persisted break deadlines before adding integer seconds. Session and process
+activity must be observed at both interval endpoints, so launches, exits,
+lock-state changes, scanner failures, reloads, and recovery cannot cause time
+from an unknown interval to be charged. Continuous-use limits start breaks at
+the exact second the threshold is reached rather than at poll completion.
+
 Each tick computes one `delta` since the previous tick and attributes all of it
 using conditions observed at the end of the interval. The delta is capped at
 twice the configured polling interval, but it is not intersected with the

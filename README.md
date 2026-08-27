@@ -21,6 +21,11 @@ Detailed documentation:
 - Outside the allowed hours, after the daily device allowance, or during a mandatory break, the daemon asks `systemd-logind` to lock the controlled user's graphical sessions.
 - At the limit, every matching process receives `SIGTERM`; processes still present after the grace period receive `SIGKILL`.
 - Usage is stored in `/var/lib/local-parental-control/usage.json` with atomic writes and resets on the next poll after local midnight.
+- Limits and schedules are configured in whole minutes, while observed usage is
+  accumulated in seconds. Accounting intervals are clipped exactly at local
+  midnight, allowed-hour boundaries, and break deadlines. A process or unlocked
+  session must appear in two consecutive samples before the interval is
+  charged, so unknown time is never assigned retroactively.
 - Administrative commands use a root-only Unix socket. The child account cannot reset counters or reload configuration.
 - A read-only desktop indicator starts automatically for configured graphical users. It shows time in the panel and tooltip without notifications, sounds, or automatic windows.
 
@@ -256,7 +261,7 @@ configuration validates. Package upgrades preserve the administrator's config.
 
 ## Security model and limitations
 
-The controlled account must not have sudo/root access. Root can always stop or alter this service. Process polling means a newly launched over-limit application can run for up to one polling interval. Executables copied to a different path do not match the original rule, so the child account should not have access to terminals, interpreters, alternative launchers, package installation, AppImage execution, Wine, or virtual machines if those are realistic bypasses. Those OS-level restrictions are administrator policy and are deliberately not applied automatically by this project.
+The controlled account must not have sudo/root access. Root can always stop or alter this service. Process polling means a newly launched over-limit application can run for up to one polling interval. Launch and exit instants between samples cannot both be reconstructed; the daemon therefore uses a conservative policy and charges only intervals where the same application is observed at both endpoints. This can undercount by up to one polling interval around a launch or exit, but cannot charge time before first observation. Executables copied to a different path do not match the original rule, so the child account should not have access to terminals, interpreters, alternative launchers, package installation, AppImage execution, Wine, or virtual machines if those are realistic bypasses. Those OS-level restrictions are administrator policy and are deliberately not applied automatically by this project.
 
 Changing the wall clock can affect the daily reset, allowed-hours checks, and break deadlines. The supplied service cannot change the system clock (`ProtectClock=true`), but the administrator must also ensure the child account lacks permission to do so. Device and application usage pause while every graphical session for the user is locked or inactive. They resume after unlock within the same calendar day. Time while the computer is shut down or the daemon is stopped is not added. If session state cannot be read reliably from systemd-logind, usage pauses and the daemon records a warning.
 
