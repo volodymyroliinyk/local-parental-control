@@ -115,6 +115,7 @@ sudo lpctl validate
 sudo lpctl discover firefox
 sudo lpctl status
 sudo lpctl reload
+sudo lpctl recover-state
 sudo lpctl reset child
 sudo lpctl reset child vlc
 ```
@@ -122,6 +123,14 @@ sudo lpctl reset child vlc
 After editing the configuration, run `validate` and then `reload`. This applies
 valid changes without restarting systemd. A failed reload leaves the previous
 configuration active.
+
+`State: RECOVERY REQUIRED` means usage data could not be trusted or persisted.
+The daemon remains running and keeps configured graphical sessions locked.
+Inspect `journalctl`, correct any disk or directory-permission problem, then run
+`sudo lpctl recover-state`. Invalid data is retained as a dated
+`usage.json.invalid-*` file before fresh counters are created. Do not delete the
+`.recovery` marker manually; it prevents an interrupted recovery from granting
+fresh allowance on restart.
 
 Inspect service health and logs with:
 

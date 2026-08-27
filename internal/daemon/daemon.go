@@ -43,6 +43,7 @@ type Service struct {
 	peerUID                           func(net.Conn) (uint32, error)
 	sessions                          sessionController
 	lookupUser                        func(string) (*user.User, error)
+	recovery                          *stateRecovery
 }
 
 type pendingTermination struct {
@@ -50,15 +51,22 @@ type pendingTermination struct {
 	process  proc.Info
 }
 
+type stateRecovery struct {
+	reason        error
+	resetRequired bool
+}
+
 func New(cfg *config.Config, configPath, statePath, socketPath, statusSocketPath string, logger *slog.Logger) (*Service, error) {
 	now := time.Now()
-	state, err := loadState(statePath, now.In(cfg.Location()).Format("2006-01-02"))
-	if err != nil {
-		return nil, err
-	}
+	date := now.In(cfg.Location()).Format("2006-01-02")
+	state, recovery := loadServiceState(statePath, date)
 	s := &Service{cfg: cfg, configPath: configPath, statePath: statePath, socketPath: socketPath, statusSocketPath: statusSocketPath, state: state, scanner: proc.NewScanner(), logger: logger, pendingKill: make(map[int]pendingTermination), sessions: loginctlController{}, now: time.Now, loadConfig: config.LoadSecure, authorizePeer: authorizeRootPeer, peerUID: unixPeerUID, lookupUser: user.Lookup, lastTick: now}
+	s.recovery = recovery
 	if err := s.resolveUsers(); err != nil {
 		return nil, err
+	}
+	if recovery != nil {
+		logger.Error("usage state recovery required; access is blocked", "error", recovery.reason)
 	}
 	return s, nil
 }
@@ -109,7 +117,13 @@ func (s *Service) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			s.mu.Lock()
-			err := saveState(s.statePath, s.state)
+			var err error
+			if s.recovery == nil {
+				err = saveState(s.statePath, s.state)
+				if err != nil {
+					s.enterStateRecovery(err, false)
+				}
+			}
 			s.mu.Unlock()
 			return err
 		case <-timer.C:
@@ -128,6 +142,18 @@ func (s *Service) tick() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now()
+	if s.recovery != nil {
+		if !s.recovery.resetRequired {
+			if err := s.retryStatePersistence(); err == nil {
+				s.logger.Info("usage state persistence recovered")
+				return nil
+			}
+		}
+		for uid, username := range s.uidUsers {
+			s.lock(uid, username, "usage state recovery required")
+		}
+		return nil
+	}
 	date := now.In(s.cfg.Location()).Format("2006-01-02")
 	if s.state.Date != date {
 		s.state = newState(date)
@@ -248,7 +274,18 @@ func (s *Service) tick() error {
 			delete(s.pendingKill, pid)
 		}
 	}
-	return saveState(s.statePath, s.state)
+	if err := saveState(s.statePath, s.state); err != nil {
+		s.enterStateRecovery(err, false)
+		return fmt.Errorf("persist usage state; access blocked: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) enterStateRecovery(reason error, resetRequired bool) {
+	s.recovery = &stateRecovery{reason: reason, resetRequired: resetRequired}
+	if err := writeRecoveryMarker(s.statePath, resetRequired); err != nil {
+		s.logger.Error("cannot persist state recovery marker", "error", err)
+	}
 }
 
 func (s *Service) lock(uid uint32, username, reason string) {
@@ -414,7 +451,9 @@ func (s *Service) handleStatus(conn net.Conn) {
 		_ = json.NewEncoder(conn).Encode(api.Response{Error: "current user is not configured"})
 		return
 	}
-	_ = json.NewEncoder(conn).Encode(api.Response{OK: true, Status: s.statusForUsers([]string{username})})
+	status := s.statusForUsers([]string{username})
+	status.RecoveryReason = ""
+	_ = json.NewEncoder(conn).Encode(api.Response{OK: true, Status: status})
 }
 
 func (s *Service) handle(conn net.Conn) {
@@ -492,7 +531,19 @@ func (s *Service) execute(req api.Request) api.Response {
 		// A raised limit or removed rule must cancel previously scheduled kills.
 		s.pendingKill = make(map[int]pendingTermination)
 		return api.Response{OK: true, Message: "configuration reloaded"}
+	case "recover-state":
+		if s.recovery == nil {
+			return api.Response{Error: "usage state does not require recovery"}
+		}
+		message, err := s.recoverState()
+		if err != nil {
+			return api.Response{Error: err.Error()}
+		}
+		return api.Response{OK: true, Message: message}
 	case "reset":
+		if s.recovery != nil {
+			return api.Response{Error: "usage state recovery is required; run lpctl recover-state"}
+		}
 		if _, ok := s.cfg.Users[req.User]; !ok {
 			return api.Response{Error: fmt.Sprintf("unknown user %q", req.User)}
 		}
@@ -518,6 +569,7 @@ func (s *Service) execute(req api.Request) api.Response {
 		// Reset is an explicit administrative unblock operation.
 		s.pendingKill = make(map[int]pendingTermination)
 		if err := saveState(s.statePath, s.state); err != nil {
+			s.enterStateRecovery(err, false)
 			return api.Response{Error: err.Error()}
 		}
 		return api.Response{OK: true, Message: "usage counters reset"}
@@ -537,11 +589,15 @@ func (s *Service) status() *api.Status {
 
 func (s *Service) statusForUsers(names []string) *api.Status {
 	result := &api.Status{Date: s.state.Date}
+	if s.recovery != nil {
+		result.RecoveryRequired = true
+		result.RecoveryReason = s.recovery.reason.Error()
+	}
 	for _, name := range names {
 		uc := s.cfg.Users[name]
 		deviceLimit := int64(uc.DailyDeviceMinutes * 60)
 		deviceUsed := s.state.DeviceSeconds[name]
-		us := api.UserStatus{Name: name, DeviceUsedSeconds: deviceUsed, DeviceLimitSeconds: deviceLimit, AllowedFrom: uc.AllowedFrom, AllowedUntil: uc.AllowedUntil, DeviceBlocked: deviceUsed >= deviceLimit || !uc.AllowedAt(s.now().In(s.cfg.Location())), ContinuousUsedSeconds: s.state.ContinuousSeconds[name], ContinuousLimitSeconds: int64(uc.ContinuousUseMinutes * 60)}
+		us := api.UserStatus{Name: name, DeviceUsedSeconds: deviceUsed, DeviceLimitSeconds: deviceLimit, AllowedFrom: uc.AllowedFrom, AllowedUntil: uc.AllowedUntil, DeviceBlocked: s.recovery != nil || deviceUsed >= deviceLimit || !uc.AllowedAt(s.now().In(s.cfg.Location())), ContinuousUsedSeconds: s.state.ContinuousSeconds[name], ContinuousLimitSeconds: int64(uc.ContinuousUseMinutes * 60), RecoveryRequired: s.recovery != nil}
 		if until, ok := s.state.BreakUntil[name]; ok && s.now().Before(until) {
 			us.BreakUntil = until.In(s.cfg.Location()).Format(time.RFC3339)
 			us.DeviceBlocked = true

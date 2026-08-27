@@ -46,10 +46,16 @@ func Remaining(used, limit int64) int64 {
 }
 
 func Label(status *api.UserStatus) string {
+	if status.RecoveryRequired {
+		return "BLOCKED"
+	}
 	return fmt.Sprintf("%dm", Remaining(status.DeviceUsedSeconds, status.DeviceLimitSeconds))
 }
 
 func Tooltip(status *api.UserStatus, date string) string {
+	if status.RecoveryRequired {
+		return "Blocked: administrator recovery required"
+	}
 	lines := []string{
 		fmt.Sprintf("Device: %d min remaining", Remaining(status.DeviceUsedSeconds, status.DeviceLimitSeconds)),
 	}

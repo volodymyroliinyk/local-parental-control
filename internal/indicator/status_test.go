@@ -87,4 +87,11 @@ func TestLabelAndTooltip(t *testing.T) {
 	if got := Label(status); got != "59m" {
 		t.Fatalf("blocked label = %q", got)
 	}
+	status.RecoveryRequired = true
+	if got := Label(status); got != "BLOCKED" {
+		t.Fatalf("recovery label = %q", got)
+	}
+	if got := Tooltip(status, "2026-08-24"); got != "Blocked: administrator recovery required" {
+		t.Fatalf("recovery tooltip = %q", got)
+	}
 }

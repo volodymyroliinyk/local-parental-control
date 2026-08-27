@@ -427,6 +427,98 @@ func TestReloadRejectsDuplicateNumericUIDTransactionally(t *testing.T) {
 	}
 }
 
+func TestInvalidStateStartsFailClosedAndRecoversExplicitly(t *testing.T) {
+	current, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid, err := strconv.ParseUint(current.Uid, 10, 32)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(directory, "usage.json")
+	if err := os.WriteFile(statePath, []byte("not-json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := basicConfig()
+	cfg.Users = map[string]config.UserConfig{current.Username: cfg.Users["child"]}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	s, err := New(cfg, "", statePath, "", "", logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.sessions = &fakeSessions{unlocked: true}
+	s.scanner = &fakeScanner{scanErr: errors.New("scanner must not be used in recovery")}
+	if s.recovery == nil || !s.recovery.resetRequired {
+		t.Fatalf("service did not enter recovery: %+v", s.recovery)
+	}
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.sessions.(*fakeSessions).uids; len(got) != 1 || got[0] != uint32(uid) {
+		t.Fatalf("recovery did not lock configured UID: %v", got)
+	}
+	if data, err := os.ReadFile(statePath); err != nil || string(data) != "not-json" {
+		t.Fatalf("invalid state was overwritten: %q, %v", data, err)
+	}
+	status := s.status()
+	if !status.RecoveryRequired || !status.Users[0].DeviceBlocked || !status.Users[0].RecoveryRequired {
+		t.Fatalf("recovery not exposed in status: %+v", status)
+	}
+	if response := s.execute(api.Request{Command: "reset", User: current.Username}); response.OK || !strings.Contains(response.Error, "recover-state") {
+		t.Fatalf("reset was allowed during recovery: %+v", response)
+	}
+	s.now = func() time.Time { return time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC) }
+	response := s.execute(api.Request{Command: "recover-state"})
+	if !response.OK || !strings.Contains(response.Message, ".invalid-20260827T120000Z") {
+		t.Fatalf("recovery failed: %+v", response)
+	}
+	if s.recovery != nil {
+		t.Fatalf("recovery remained active: %+v", s.recovery)
+	}
+	if _, err := loadState(statePath, "2026-08-27"); err != nil {
+		t.Fatalf("recovered state is invalid: %v", err)
+	}
+	if _, err := os.Stat(statePath + ".invalid-20260827T120000Z"); err != nil {
+		t.Fatalf("invalid state was not preserved: %v", err)
+	}
+	if _, err := os.Stat(recoveryMarkerPath(statePath)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("recovery marker remains: %v", err)
+	}
+}
+
+func TestStateSaveFailureEntersRecovery(t *testing.T) {
+	start := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	directory := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	s := testService(t, start, basicConfig(), &fakeScanner{})
+	s.statePath = filepath.Join(directory, "usage.json")
+	if err := os.Chmod(directory, 0500); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.tick(); err == nil {
+		t.Fatal("expected state save failure")
+	}
+	if s.recovery == nil || s.recovery.resetRequired {
+		t.Fatalf("save failure did not enter retry recovery: %+v", s.recovery)
+	}
+	if err := os.Chmod(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if s.recovery != nil {
+		t.Fatalf("persistence did not recover automatically: %+v", s.recovery)
+	}
+}
+
 func TestAdministrativeSocketPermissionsAndRequest(t *testing.T) {
 	start := time.Now()
 	s := testService(t, start, basicConfig(), &fakeScanner{})
@@ -474,6 +566,7 @@ func TestAdministrativeSocketPermissionsAndRequest(t *testing.T) {
 
 func TestStatusSocketReturnsOnlyPeerUser(t *testing.T) {
 	s := testService(t, time.Now(), basicConfig(), &fakeScanner{})
+	s.recovery = &stateRecovery{reason: errors.New("private state path detail"), resetRequired: true}
 	s.cfg.Users["other"] = s.cfg.Users["child"]
 	s.statusSocketPath = filepath.Join(t.TempDir(), "status", "status.sock")
 	s.uidUsers = map[uint32]string{1000: "child"}
@@ -513,6 +606,9 @@ func TestStatusSocketReturnsOnlyPeerUser(t *testing.T) {
 	<-done
 	if !response.OK || response.Status == nil || len(response.Status.Users) != 1 || response.Status.Users[0].Name != "child" {
 		t.Fatalf("unexpected status response: %+v", response)
+	}
+	if !response.Status.RecoveryRequired || response.Status.RecoveryReason != "" || !response.Status.Users[0].RecoveryRequired {
+		t.Fatalf("public recovery status exposed details or omitted blocking: %+v", response.Status)
 	}
 }
 

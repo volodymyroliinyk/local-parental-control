@@ -15,6 +15,8 @@ process, but they do not make it equivalent to an unprivileged service.
 
 - Production configuration and executable metadata are validated before use.
 - Usage state and the administrative socket are root-private.
+- Invalid or unpersistable usage state fails closed: graphical sessions are
+  locked until persistence recovers or root explicitly runs state recovery.
 - Administrative socket clients must present UID 0 through `SO_PEERCRED`.
 - A separate read-only status socket uses `SO_PEERCRED` to return only the
   connecting configured user's status. It accepts no commands and exposes no
@@ -31,6 +33,10 @@ process, but they do not make it equivalent to an unprivileged service.
   `/usr/bin/loginctl` command. Each operation has a five-second timeout.
 
 ## Limitations
+
+State recovery blocks graphical sessions but cannot reconstruct damaged usage
+values. Running `lpctl recover-state` is an explicit administrative decision to
+quarantine the invalid file and grant fresh current-day counters.
 
 Native rules match the kernel-resolved executable path. A copy at another path, an
 interpreter, another launcher, a container, Wine, a virtual machine, or remote

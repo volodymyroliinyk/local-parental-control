@@ -232,12 +232,15 @@ Wayland and X11 when both are supported.
 | STA-02 | Atomic state updates | Monitor the state directory while counters update and interrupt the service at varied moments. | Readers see a complete old or new JSON document, not a partial state file; temporary files do not accumulate. | | |
 | STA-03 | Valid same-day restoration | Restart with a valid state containing device, continuous, break, and app values. | All same-day values are restored. | | |
 | STA-04 | Missing state file | Stop the service, move the state file aside, and start it. | Service creates fresh current-day state on the next save. | | |
-| STA-05 | Invalid state JSON | In a disposable setup while stopped, install malformed or trailing-data state and start. | Service refuses unsafe/corrupt state rather than silently accepting it. | | |
-| STA-06 | Invalid state ownership or mode | While stopped, change owner/type/mode and start the service. | Service rejects the state file and reports the permission problem. | | |
-| STA-07 | Invalid state values | While stopped, test negative, over-one-day, invalid date, zero break deadline, and unknown fields. | Service rejects each invalid state. | | |
-| STA-08 | Oversized state | Start with a state file larger than 4 MiB. | Service rejects it. | | |
+| STA-05 | Invalid state JSON | In a disposable setup while stopped, install malformed or trailing-data state and start. | Daemon starts in recovery mode, preserves the file, reports the error, and repeatedly locks configured sessions. | | |
+| STA-06 | Invalid state ownership or mode | While stopped, change owner/type/mode and start the service. | Daemon enters recovery mode without reading or overwriting the unsafe file. Recovery remains blocked until directory/filesystem safety is restored. | | |
+| STA-07 | Invalid state values | While stopped, test negative, over-one-day, invalid date, zero break deadline, and unknown fields. | Each invalid state produces fail-closed recovery mode. | | |
+| STA-08 | Oversized state | Start with a state file larger than 4 MiB. | Daemon enters recovery mode without reading or replacing the oversized file. | | |
 | STA-09 | Missing maps compatibility | Start with otherwise valid same-day state where optional maps are `null` or omitted as accepted by the decoder. | Service initializes missing maps and continues safely. | | |
-| STA-10 | Failed state save | In a disposable setup, make the state directory temporarily unwritable/incompatible and use the service. | Iteration errors are logged; service does not claim that usage was persisted. Restore permissions and verify recovery. | | |
+| STA-10 | Failed state save | In a disposable setup, make the state directory temporarily unwritable/incompatible and use the service. | Access becomes blocked, in-memory counters are retained, and persistence automatically recovers after storage is writable again. | | |
+| STA-11 | Explicit state recovery | Start in recovery mode, inspect status, then run `sudo lpctl recover-state`. | Invalid state is preserved as `usage.json.invalid-*`, a valid fresh state is written, the marker is removed, and access again follows normal rules. | | |
+| STA-12 | Interrupted recovery | Leave a valid `.recovery` marker with `usage.json` absent and restart the daemon. | Recovery mode remains active; the missing file is not treated as a clean installation. | | |
+| STA-13 | Recovery indicator | Observe the controlled user's panel indicator during state recovery. | Label says `BLOCKED` and tooltip says administrator recovery is required without exposing the detailed state error. | | |
 
 ## Update compatibility and preservation
 

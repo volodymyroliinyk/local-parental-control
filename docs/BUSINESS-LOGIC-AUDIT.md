@@ -120,6 +120,14 @@ an explicit actionable failure is surfaced.
 
 Severity: **High**
 
+Status: **Resolved on 2026-08-27.** Invalid state now starts the daemon in a
+fail-closed recovery mode that locks every configured graphical session,
+exposes the condition through status and the indicator, and preserves the
+original file. A root-only recovery command quarantines invalid data and uses a
+durable marker so interruption cannot turn a missing file into fresh allowance.
+Runtime persistence failures also block access and retry without discarding the
+in-memory counters.
+
 Missing state correctly creates a new state, but malformed JSON, unexpected
 fields, unsafe metadata, excessive values, or an oversized file make
 `loadState` fail. Service construction then fails and the daemon exits. Systemd

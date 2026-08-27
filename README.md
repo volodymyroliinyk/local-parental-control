@@ -151,6 +151,7 @@ sudo lpctl validate
 sudo lpctl discover firefox
 sudo lpctl status
 sudo lpctl reload
+sudo lpctl recover-state
 sudo lpctl reset child
 sudo lpctl reset child vlc
 sudo systemctl status local-parental-control.service
@@ -166,6 +167,16 @@ launcher paths such as `/snap/bin/firefox`. Snap results use stable
 If a new configuration is invalid, `reload` reports an error and the daemon
 continues using the previous rules. A successful `reload` applies changes
 without a systemd restart.
+
+If usage state is damaged, unsafe, oversized, or unreadable, the daemon starts
+in fail-closed recovery mode instead of exiting. It locks every configured
+graphical session, preserves the original state, and reports the problem
+through `lpctl status` and the panel indicator. After inspecting the service
+log, run `sudo lpctl recover-state` to preserve the invalid file under a dated
+`usage.json.invalid-*` name and intentionally create fresh counters. A durable
+marker keeps access blocked if recovery is interrupted. Temporary runtime
+persistence failures also block access; the daemon retains its in-memory
+counters and retries the write automatically.
 
 To update an installation made with `scripts/install.sh` while preserving the configuration and usage data:
 

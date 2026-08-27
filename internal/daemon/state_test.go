@@ -95,3 +95,41 @@ func TestStateRejectsUnsafePermissions(t *testing.T) {
 		t.Fatalf("unexpected file validation error: %v", err)
 	}
 }
+
+func TestRecoveryMarkerKeepsMissingStateBlocked(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "usage.json")
+	if err := writeRecoveryMarker(path, true); err != nil {
+		t.Fatal(err)
+	}
+	state, recovery := loadServiceState(path, "2026-08-27")
+	if recovery == nil || !recovery.resetRequired || state.Date != "2026-08-27" {
+		t.Fatalf("missing state escaped recovery: state=%+v recovery=%+v", state, recovery)
+	}
+	info, err := os.Stat(recoveryMarkerPath(path))
+	if err != nil || info.Mode().Perm() != 0600 {
+		t.Fatalf("invalid recovery marker: info=%v err=%v", info, err)
+	}
+}
+
+func TestLoadServiceStateEntersRecoveryForInvalidState(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "usage.json")
+	if err := os.WriteFile(path, []byte("not-json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	state, recovery := loadServiceState(path, "2026-08-27")
+	if recovery == nil || !recovery.resetRequired || state.Date != "2026-08-27" {
+		t.Fatalf("invalid state did not enter recovery: state=%+v recovery=%+v", state, recovery)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "not-json" {
+		t.Fatalf("invalid state was modified: %q, %v", data, err)
+	}
+}

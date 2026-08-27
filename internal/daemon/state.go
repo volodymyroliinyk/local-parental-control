@@ -13,6 +13,7 @@ import (
 )
 
 const maxStateSize = 4 << 20
+const recoveryMarkerSuffix = ".recovery"
 
 type usageState struct {
 	Date              string                      `json:"date"`
@@ -24,6 +25,181 @@ type usageState struct {
 
 func newState(date string) usageState {
 	return usageState{Date: date, DeviceSeconds: make(map[string]int64), ContinuousSeconds: make(map[string]int64), BreakUntil: make(map[string]time.Time), Users: make(map[string]map[string]int64)}
+}
+
+func loadServiceState(path, date string) (usageState, *stateRecovery) {
+	markerReset, markerPresent, markerErr := loadRecoveryMarker(path)
+	state, stateErr := loadState(path, date)
+	if markerErr != nil {
+		return newState(date), &stateRecovery{reason: fmt.Errorf("invalid recovery marker: %w", markerErr), resetRequired: true}
+	}
+	if markerPresent {
+		if stateErr != nil {
+			state = newState(date)
+			markerReset = true
+		}
+		return state, &stateRecovery{reason: errors.New("an earlier usage state recovery did not complete"), resetRequired: markerReset}
+	}
+	if stateErr != nil {
+		return newState(date), &stateRecovery{reason: stateErr, resetRequired: true}
+	}
+	return state, nil
+}
+
+func recoveryMarkerPath(path string) string { return path + recoveryMarkerSuffix }
+
+func loadRecoveryMarker(statePath string) (resetRequired, present bool, err error) {
+	path := recoveryMarkerPath(statePath)
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	if err := validatePrivateFile(path, info); err != nil {
+		return false, true, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, true, err
+	}
+	switch string(bytes.TrimSpace(data)) {
+	case "reset":
+		return true, true, nil
+	case "retry":
+		return false, true, nil
+	default:
+		return false, true, errors.New("unknown recovery marker mode")
+	}
+}
+
+func writeRecoveryMarker(statePath string, resetRequired bool) error {
+	directory := filepath.Dir(statePath)
+	if err := validatePrivateDirectory(directory); err != nil {
+		return err
+	}
+	mode := "retry\n"
+	if resetRequired {
+		mode = "reset\n"
+	}
+	path := recoveryMarkerPath(statePath)
+	if existingReset, present, err := loadRecoveryMarker(statePath); err == nil && present && (existingReset || !resetRequired) {
+		return nil
+	}
+	return writePrivateFile(path, []byte(mode))
+}
+
+func writePrivateFile(path string, data []byte) error {
+	directory := filepath.Dir(path)
+	tmp, err := os.CreateTemp(directory, ".recovery-*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	return syncDirectory(directory)
+}
+
+func (s *Service) recoverState() (string, error) {
+	if err := writeRecoveryMarker(s.statePath, s.recovery.resetRequired); err != nil {
+		return "", fmt.Errorf("create recovery marker: %w", err)
+	}
+	quarantine := ""
+	if s.recovery.resetRequired {
+		var err error
+		quarantine, err = quarantineState(s.statePath, s.now().UTC())
+		if err != nil {
+			return "", err
+		}
+		s.state = newState(s.now().In(s.cfg.Location()).Format("2006-01-02"))
+	}
+	if err := saveState(s.statePath, s.state); err != nil {
+		return "", fmt.Errorf("write recovered state: %w", err)
+	}
+	if err := os.Remove(recoveryMarkerPath(s.statePath)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("remove recovery marker: %w", err)
+	}
+	if err := syncDirectory(filepath.Dir(s.statePath)); err != nil {
+		return "", err
+	}
+	s.recovery = nil
+	if quarantine != "" {
+		return fmt.Sprintf("usage state reset; invalid state preserved at %s", quarantine), nil
+	}
+	return "usage state persistence restored", nil
+}
+
+func (s *Service) retryStatePersistence() error {
+	if err := saveState(s.statePath, s.state); err != nil {
+		s.recovery.reason = err
+		return err
+	}
+	if err := os.Remove(recoveryMarkerPath(s.statePath)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		s.recovery.reason = err
+		return err
+	}
+	if err := syncDirectory(filepath.Dir(s.statePath)); err != nil {
+		s.recovery.reason = err
+		return err
+	}
+	s.recovery = nil
+	return nil
+}
+
+func quarantineState(path string, now time.Time) (string, error) {
+	if err := validatePrivateDirectory(filepath.Dir(path)); err != nil {
+		return "", err
+	}
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	} else if err != nil {
+		return "", err
+	}
+	base := fmt.Sprintf("%s.invalid-%s", path, now.Format("20060102T150405Z"))
+	target := base
+	for suffix := 2; ; suffix++ {
+		if _, err := os.Lstat(target); errors.Is(err, os.ErrNotExist) {
+			break
+		} else if err != nil {
+			return "", err
+		}
+		target = fmt.Sprintf("%s-%d", base, suffix)
+	}
+	if err := os.Rename(path, target); err != nil {
+		return "", fmt.Errorf("preserve invalid state: %w", err)
+	}
+	if err := syncDirectory(filepath.Dir(path)); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
+func syncDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	return directory.Sync()
 }
 
 func loadState(path, date string) (usageState, error) {
@@ -132,12 +308,7 @@ func saveState(path string, state usageState) error {
 	if err := os.Rename(tmpName, path); err != nil {
 		return err
 	}
-	directory, err := os.Open(filepath.Dir(path))
-	if err != nil {
-		return err
-	}
-	defer directory.Close()
-	return directory.Sync()
+	return syncDirectory(filepath.Dir(path))
 }
 
 func validatePrivateDirectory(path string) error {

@@ -71,7 +71,7 @@ func run(args []string) int {
 
 	req := api.Request{Command: command}
 	switch command {
-	case "status", "reload":
+	case "status", "reload", "recover-state":
 		if len(remaining) != 1 {
 			usage()
 			return 2
@@ -129,6 +129,11 @@ func printStatus(status *api.Status) {
 	if status == nil {
 		return
 	}
+	if status.RecoveryRequired {
+		fmt.Println("State: RECOVERY REQUIRED (access is blocked)")
+		fmt.Printf("Reason: %s\n", status.RecoveryReason)
+		fmt.Println("Recovery: sudo lpctl recover-state")
+	}
 	fmt.Printf("Date: %s\n\n", status.Date)
 	for _, user := range status.Users {
 		fmt.Printf("User: %s\n", user.Name)
@@ -161,6 +166,7 @@ Commands:
   discover KEYWORD         find configuration-ready native and Snap executables
   status                   show today's usage
   reload                   reload configuration without restarting
+  recover-state            preserve invalid state and restore enforcement
   reset USER [APP_ID]      reset usage for a user or one application
   help                     show this help`)
 }

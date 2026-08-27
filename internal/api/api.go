@@ -14,8 +14,10 @@ type Response struct {
 }
 
 type Status struct {
-	Date  string       `json:"date"`
-	Users []UserStatus `json:"users"`
+	Date             string       `json:"date"`
+	RecoveryRequired bool         `json:"recovery_required,omitempty"`
+	RecoveryReason   string       `json:"recovery_reason,omitempty"`
+	Users            []UserStatus `json:"users"`
 }
 type UserStatus struct {
 	Name                   string              `json:"name"`
@@ -27,6 +29,7 @@ type UserStatus struct {
 	ContinuousUsedSeconds  int64               `json:"continuous_used_seconds"`
 	ContinuousLimitSeconds int64               `json:"continuous_limit_seconds"`
 	BreakUntil             string              `json:"break_until,omitempty"`
+	RecoveryRequired       bool                `json:"recovery_required,omitempty"`
 	Applications           []ApplicationStatus `json:"applications"`
 }
 type ApplicationStatus struct {
