@@ -7,6 +7,7 @@ if [[ ${EUID} -ne 0 ]]; then
 fi
 
 systemctl disable --now local-parental-control.service 2>/dev/null || true
+/usr/sbin/nft destroy table inet local_parental_control 2>/dev/null || true
 if command -v apparmor_parser >/dev/null 2>&1 && [[ -f /etc/apparmor.d/local-parental-control ]]; then
   apparmor_parser -R /etc/apparmor.d/local-parental-control 2>/dev/null || true
 fi

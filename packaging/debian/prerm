@@ -3,7 +3,7 @@ set -e
 
 if [ "$1" = "remove" ] || [ "$1" = "deconfigure" ]; then
   systemctl disable --now local-parental-control.service >/dev/null 2>&1 || true
+  /usr/sbin/nft destroy table inet local_parental_control >/dev/null 2>&1 || true
 fi
 
 exit 0
-

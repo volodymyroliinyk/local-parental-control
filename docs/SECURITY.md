@@ -26,6 +26,10 @@ process, but they do not make it equivalent to an unprivileged service.
 - systemd removes unnecessary capabilities, address families, namespaces, and
   system calls.
 - AppArmor limits filesystem access and outbound signals.
+- Domain filtering uses a dedicated `nftables` table and per-UID DNS
+  redirection. The daemon receives `CAP_NET_ADMIN` solely to maintain that
+  table and opens local DNS listeners plus outbound connections to the system's
+  configured DNS resolver.
 - AppArmor permits read-only access to installed Snap files so configured ELF
   paths can be validated; Snap files remain non-writable by the daemon.
 - Screen locking and usage accounting query sessions using only a validated

@@ -35,6 +35,7 @@ type UserConfig struct {
 	AllowedFrom          string        `json:"allowed_from"`
 	AllowedUntil         string        `json:"allowed_until"`
 	Applications         []Application `json:"applications"`
+	BlockedDomains       []string      `json:"blocked_domains"`
 }
 
 type Application struct {
@@ -327,6 +328,19 @@ func (c *Config) Validate() error {
 			}
 		}
 		ids, paths := map[string]bool{}, map[string]bool{}
+		domains := make(map[string]bool, len(uc.BlockedDomains))
+		for i, domain := range uc.BlockedDomains {
+			normalized, err := NormalizeDomain(domain)
+			if err != nil {
+				return fmt.Errorf("users.%s.blocked_domains[%d]: %w", username, i, err)
+			}
+			if domains[normalized] {
+				return fmt.Errorf("users.%s.blocked_domains contains duplicate domain %q", username, normalized)
+			}
+			domains[normalized] = true
+			uc.BlockedDomains[i] = normalized
+		}
+		c.Users[username] = uc
 		for i, app := range uc.Applications {
 			prefix := fmt.Sprintf("users.%s.applications[%d]", username, i)
 			if !validApplicationID(app.ID) {
@@ -358,6 +372,29 @@ func (c *Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+// NormalizeDomain validates a DNS name used as a blocking suffix. A rule for
+// example.com also matches every subdomain of example.com.
+func NormalizeDomain(value string) (string, error) {
+	domain := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(value), "."))
+	if domain == "" || len(domain) > 253 {
+		return "", errors.New("must be a non-empty DNS name no longer than 253 characters")
+	}
+	if strings.Contains(domain, "://") || strings.ContainsAny(domain, "/?#@:") {
+		return "", errors.New("must be a domain name without a scheme, port, path, query, or fragment")
+	}
+	for _, label := range strings.Split(domain, ".") {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return "", fmt.Errorf("invalid DNS label in %q", value)
+		}
+		for _, r := range label {
+			if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-') {
+				return "", fmt.Errorf("invalid character in domain %q; use its ASCII/Punycode form", value)
+			}
+		}
+	}
+	return domain, nil
 }
 
 func validApplicationID(id string) bool {

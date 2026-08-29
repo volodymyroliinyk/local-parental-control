@@ -1,6 +1,6 @@
 # Local Parental Control
 
-Local Parental Control is a service for Ubuntu and other Linux systems. A root daemon limits a configured user's total daily device time and login hours, and measures how long selected applications run. A quiet panel indicator shows the controlled user how much time remains. The service does not require a network connection or an online account.
+Local Parental Control is a service for Ubuntu and other Linux systems. A root daemon limits a configured user's total daily device time and login hours, measures how long selected applications run, and blocks configured DNS domains for that user. A quiet panel indicator shows the controlled user how much time remains. The service does not require an online account.
 
 This version controls native processes only.
 
@@ -31,13 +31,17 @@ Detailed documentation:
   session must appear in two consecutive samples before the interval is
   charged, so unknown time is never assigned retroactively.
 - Administrative commands use a root-only Unix socket. The child account cannot reset counters or reload configuration.
+- DNS requests from a user with blocked domains are redirected by an isolated
+  `nftables` table to the daemon's local DNS filter. A domain rule also blocks
+  all of its subdomains and does not affect other users.
 - A read-only desktop indicator starts automatically for configured graphical users. It shows time in the panel and tooltip without notifications, sounds, or automatic windows.
 
 The service controls configured applications; it is not a general application allowlist. This avoids breaking GNOME, D-Bus, PipeWire, portals, and other essential desktop-session processes.
 
 ## Requirements
 
-- Ubuntu or a comparable Linux distribution with `systemd`, `/proc`, and a StatusNotifier-compatible desktop panel
+- Ubuntu or a comparable Linux distribution with `systemd`, AppArmor,
+  `nftables`, `/proc`, and a StatusNotifier-compatible desktop panel
 - Go 1.26 or newer to build
 - root access for installation and administration
 - a non-administrator account for the controlled user
@@ -58,6 +62,7 @@ Copy and edit [`example/config.json`](example/config.json). The service reads `/
       "break_minutes": 10,
       "allowed_from": "11:00",
       "allowed_until": "20:00",
+      "blocked_domains": ["youtube.com", "example.org"],
       "applications": [
         {
           "id": "vlc",
@@ -92,7 +97,21 @@ Important details:
   24-hour `HH:MM` values; the start is inclusive, the end is exclusive, and the
   start must be earlier than the end. Overnight windows are not supported.
 - Application rules are optional. An application limit is 1–1440 minutes. The polling interval and termination grace period are 1–60 seconds.
+- `blocked_domains` is optional. Enter bare ASCII domain names such as
+  `youtube.com`, without `https://`, a port, path, query, or wildcard. A rule
+  blocks the domain and every subdomain; matching is case-insensitive. Use the
+  ASCII/Punycode spelling for internationalized names.
 - Unknown JSON fields are rejected to catch misspelled settings.
+
+Domain blocking returns DNS `NXDOMAIN` for matching names over ordinary UDP
+and TCP DNS. It applies to all browsers and other programs run by that numeric
+UID, while the administrator and other users retain normal resolution. It does
+not inspect HTTPS URLs and cannot distinguish pages on the same domain.
+Applications that use DNS-over-HTTPS, DNS-over-TLS, a VPN, Tor, a proxy, or
+hard-coded IP addresses can bypass DNS-domain rules. Disable those mechanisms
+separately in the controlled account when required. Existing connections and
+cached DNS results can remain usable until the application cache expires or
+the application is restarted.
 
 When a limit is reached, the daemon sends `SIGTERM` first and waits for the
 configured grace period. It then uses `SIGKILL` if the same process is still

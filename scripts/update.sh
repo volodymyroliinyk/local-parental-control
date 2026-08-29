@@ -30,6 +30,10 @@ if ! command -v apparmor_parser >/dev/null 2>&1; then
   echo "AppArmor is required. Install the apparmor package first." >&2
   exit 1
 fi
+if [[ ! -x /usr/sbin/nft ]]; then
+  echo "nftables is required. Install the nftables package first." >&2
+  exit 1
+fi
 if [[ -z ${SUDO_UID:-} || ${SUDO_UID} -eq 0 ]]; then
   echo "Run this script through sudo from the administrator account." >&2
   exit 1

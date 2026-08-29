@@ -6,13 +6,16 @@ profile local-parental-control /usr/{,local/}sbin/local-parental-control flags=(
 
   capability kill,
   capability sys_ptrace,
+  capability net_admin,
 
   ptrace (read),
 
   /etc/local-parental-control/config.json r,
   /etc/nsswitch.conf r,
+  /etc/resolv.conf r,
   /etc/passwd r,
   /usr/bin/loginctl rix,
+  /usr/sbin/nft rix,
   /proc/ r,
   /proc/[0-9]*/status r,
   /proc/[0-9]*/stat r,
@@ -21,6 +24,7 @@ profile local-parental-control /usr/{,local/}sbin/local-parental-control flags=(
   /proc/sys/net/core/somaxconn r,
   /run/local-parental-control/ rw,
   /run/local-parental-control/** rwk,
+  /run/systemd/resolve/{resolv.conf,stub-resolv.conf} r,
   /run/systemd/private rw,
   /var/lib/local-parental-control/ rw,
   /var/lib/local-parental-control/** rwk,
@@ -28,6 +32,12 @@ profile local-parental-control /usr/{,local/}sbin/local-parental-control flags=(
   /snap/** r,
 
   signal (send) set=(term, kill),
+
+  network inet dgram,
+  network inet stream,
+  network inet6 dgram,
+  network inet6 stream,
+  network netlink raw,
 
   # sd-bus gives loginctl a unique abstract client address before it connects
   # to the system bus. Keep the bind permission limited to loginctl's suffix.

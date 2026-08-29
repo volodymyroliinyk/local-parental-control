@@ -1,7 +1,7 @@
 # Installation and administration
 
 This guide applies to Ubuntu 24.04 and comparable Linux systems that use
-systemd, AppArmor, and `/proc`.
+systemd, AppArmor, `nftables`, and `/proc`.
 
 ## Before installation
 

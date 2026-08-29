@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -19,6 +20,17 @@ import (
 	"github.com/volodymyroliinyk/local-parental-control/internal/config"
 	proc "github.com/volodymyroliinyk/local-parental-control/internal/process"
 )
+
+type fakeDomainFilter struct {
+	err     error
+	applied int
+}
+
+func (f *fakeDomainFilter) Apply(context.Context, *config.Config, map[uint32]string) error {
+	f.applied++
+	return f.err
+}
+func (f *fakeDomainFilter) Close() error { return nil }
 
 type fakeScanner struct {
 	processes []proc.Info
@@ -778,6 +790,28 @@ func TestReloadRejectsDuplicateNumericUIDTransactionally(t *testing.T) {
 	}
 	if len(s.cfg.Users) != 1 || s.uidUsers[1000] != "child" {
 		t.Fatalf("invalid reload changed active configuration: cfg=%+v uidUsers=%+v", s.cfg, s.uidUsers)
+	}
+}
+
+func TestReloadRetainsConfigurationWhenDomainRulesFail(t *testing.T) {
+	s := testService(t, time.Now(), basicConfig(), &fakeScanner{})
+	s.lookupUser = func(username string) (*user.User, error) {
+		return &user.User{Username: username, Uid: "1000"}, nil
+	}
+	filter := &fakeDomainFilter{err: errors.New("nft failed")}
+	s.domainFilter = filter
+	next := basicConfig()
+	userConfig := next.Users["child"]
+	userConfig.BlockedDomains = []string{"example.com"}
+	next.Users["child"] = userConfig
+	s.loadConfig = func(string) (*config.Config, error) { return next, nil }
+
+	response := s.execute(api.Request{Command: "reload"})
+	if response.OK || !strings.Contains(response.Error, "apply domain blocking") {
+		t.Fatalf("unexpected reload response: %+v", response)
+	}
+	if len(s.cfg.Users["child"].BlockedDomains) != 0 || filter.applied != 1 {
+		t.Fatalf("failed domain reload changed configuration: cfg=%+v calls=%d", s.cfg, filter.applied)
 	}
 }
 

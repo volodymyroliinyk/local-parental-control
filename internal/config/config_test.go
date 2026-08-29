@@ -481,3 +481,40 @@ func currentUser(t *testing.T) *user.User {
 	}
 	return current
 }
+
+func TestNormalizeDomain(t *testing.T) {
+	for input, want := range map[string]string{
+		"Example.COM":   "example.com",
+		"example.com.":  "example.com",
+		" x.y.example ": "x.y.example",
+	} {
+		got, err := NormalizeDomain(input)
+		if err != nil || got != want {
+			t.Errorf("NormalizeDomain(%q) = %q, %v; want %q", input, got, err, want)
+		}
+	}
+	for _, input := range []string{"", ".example.com", "https://example.com", "example.com/path", "-bad.example", "bad_.example", "example.com:443"} {
+		if _, err := NormalizeDomain(input); err == nil {
+			t.Errorf("NormalizeDomain(%q) accepted invalid value", input)
+		}
+	}
+}
+
+func TestValidateNormalizesAndRejectsDuplicateDomains(t *testing.T) {
+	current := currentUser(t)
+	cfg := &Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 15, Users: map[string]UserConfig{
+		current.Username: {DailyDeviceMinutes: 60, ContinuousUseMinutes: 60, BreakMinutes: 10, AllDay: true, BlockedDomains: []string{"Example.COM"}},
+	}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Users[current.Username].BlockedDomains[0]; got != "example.com" {
+		t.Fatalf("normalized domain = %q", got)
+	}
+	userConfig := cfg.Users[current.Username]
+	userConfig.BlockedDomains = []string{"example.com", "EXAMPLE.COM."}
+	cfg.Users[current.Username] = userConfig
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "duplicate domain") {
+		t.Fatalf("duplicate domains error = %v", err)
+	}
+}

@@ -67,6 +67,18 @@ loginctl show-session SESSION --property=Active --property=LockedHint --property
 | INS-12 | Uninstall preserving data | Run the source uninstall or remove (not purge) the package. | Binaries and service integration are removed; configuration and usage history remain. | | |
 | INS-13 | Package purge | Purge the Debian package in a disposable environment. | Package-owned files and saved usage state are removed according to package behavior. | | |
 
+## Domain blocking
+
+| ID | Test | Procedure | Expected result | Result | Notes |
+|---|---|---|---|---|---|
+
+| WEB-01 | Exact domain | Add `example.com` to a controlled user's `blocked_domains`, validate and reload, then resolve and open it as that user. | DNS returns NXDOMAIN and the site does not open; another user can still resolve it. | | |
+| WEB-02 | Subdomain | With `example.com` blocked, resolve `www.example.com` and a deeper subdomain as the controlled user. | The domain and all subdomains return NXDOMAIN. | | |
+| WEB-03 | Unrelated suffix | With `example.com` blocked, resolve `notexample.com`. | The unrelated domain resolves normally. | | |
+| WEB-04 | DNS transports | Query a blocked and allowed domain using ordinary DNS over both UDP and TCP. | Blocked queries return NXDOMAIN and allowed queries are forwarded over both transports. | | |
+| WEB-05 | Reload transaction | Make the new domain configuration valid but prevent `nftables` application, then reload. | Reload fails and the previous configuration and DNS rules remain active. | | |
+| WEB-06 | Known bypasses | Enable browser DNS-over-HTTPS or connect through a VPN/proxy as the controlled user. | Documentation correctly warns that these transports are outside DNS filtering and may bypass it. | | |
+
 ## Configuration validation and reload
 
 | ID | Test | Procedure | Expected result | Result | Notes |

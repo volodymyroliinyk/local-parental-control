@@ -20,6 +20,7 @@ import (
 	"github.com/volodymyroliinyk/local-parental-control/internal/api"
 	"github.com/volodymyroliinyk/local-parental-control/internal/config"
 	proc "github.com/volodymyroliinyk/local-parental-control/internal/process"
+	"github.com/volodymyroliinyk/local-parental-control/internal/webfilter"
 )
 
 const DefaultStatePath = "/var/lib/local-parental-control/usage.json"
@@ -47,6 +48,7 @@ type Service struct {
 	applicationMonitoringError        error
 	previousUsers                     map[string]bool
 	previousApps                      map[string]map[string]bool
+	domainFilter                      webfilter.Controller
 }
 
 type pendingTermination struct {
@@ -71,6 +73,7 @@ func New(cfg *config.Config, configPath, statePath, socketPath, statusSocketPath
 		}
 	}
 	s := &Service{cfg: cfg, configPath: configPath, statePath: statePath, socketPath: socketPath, statusSocketPath: statusSocketPath, state: state, scanner: proc.NewScanner(), logger: logger, pendingKill: make(map[int]pendingTermination), sessions: loginctlController{}, now: time.Now, loadConfig: config.LoadSecure, authorizePeer: authorizeRootPeer, peerUID: unixPeerUID, lookupUser: user.Lookup, lastTick: now, previousUsers: make(map[string]bool), previousApps: make(map[string]map[string]bool)}
+	s.domainFilter = webfilter.New(logger)
 	s.recovery = recovery
 	if err := s.resolveUsers(); err != nil {
 		return nil, err
@@ -108,6 +111,14 @@ func (s *Service) resolveUsers() error {
 }
 
 func (s *Service) Run(ctx context.Context) error {
+	if err := s.domainFilter.Apply(ctx, s.cfg, s.uidUsers); err != nil {
+		return fmt.Errorf("initialize domain blocking: %w", err)
+	}
+	defer func() {
+		if err := s.domainFilter.Close(); err != nil {
+			s.logger.Error("remove domain blocking rules", "error", err)
+		}
+	}()
 	listener, err := s.listen()
 	if err != nil {
 		return err
@@ -661,6 +672,16 @@ func (s *Service) execute(req api.Request) api.Response {
 			s.cfg = old
 			_ = s.resolveUsers()
 			return api.Response{Error: err.Error()}
+		}
+		if s.domainFilter != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			err = s.domainFilter.Apply(ctx, cfg, s.uidUsers)
+			cancel()
+			if err != nil {
+				s.cfg = old
+				_ = s.resolveUsers()
+				return api.Response{Error: fmt.Sprintf("apply domain blocking: %v", err)}
+			}
 		}
 		// A raised limit or removed rule must cancel previously scheduled kills.
 		s.pendingKill = make(map[int]pendingTermination)

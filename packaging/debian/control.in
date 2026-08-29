@@ -4,9 +4,9 @@ Section: admin
 Priority: optional
 Architecture: @ARCHITECTURE@
 Maintainer: Local Parental Control maintainers
-Depends: systemd, apparmor
+Depends: systemd, apparmor, nftables
 Recommends: gnome-shell-extension-appindicator
-Description: Local device and application time limits for Linux users
+Description: Local device, application, and domain controls for Linux users
  A local-only root daemon that restricts login hours and daily device time,
  measures configured application usage, and enforces the configured limits.
  Administration is performed through the lpctl command-line tool.

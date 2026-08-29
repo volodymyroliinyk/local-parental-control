@@ -9,6 +9,10 @@
       "break_minutes": 10,
       "allowed_from": "11:00",
       "allowed_until": "20:00",
+      "blocked_domains": [
+        "example.com",
+        "www.example.org"
+      ],
       "applications": [
         {
           "id": "firefox",

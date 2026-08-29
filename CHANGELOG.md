@@ -9,6 +9,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- Add per-user DNS domain blocking with subdomain matching and transactional reloads.
+
 - A business-logic audit documenting prioritized enforcement, accounting, recovery, and validation improvements.
 
 - A comprehensive manual behavior test checklist for release, regression, installation, enforcement, persistence, indicator, and security verification.
