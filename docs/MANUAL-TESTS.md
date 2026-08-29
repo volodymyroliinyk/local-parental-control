@@ -86,6 +86,7 @@ loginctl show-session SESSION --property=Active --property=LockedHint --property
 | CFG-13 | Executable list and path | Test an empty list, relative path, nonexistent path, and duplicate path within one user. | Each invalid configuration is rejected. | | |
 | CFG-14 | Executable security | Test a script, directory, non-executable file, non-root-owned file, and group- or other-writable ELF file. | Production validation rejects every unsafe or unsupported entry. | | |
 | CFG-15 | Symlink resolution | Configure a safe symlink to a supported ELF and validate/reload. | Validation resolves it to the real path and process matching works. | | |
+| CFG-16 | Application ID characters | Validate IDs containing spaces, tabs, newlines, Unicode whitespace, `/`, and `\\`; also validate ordinary IDs using letters, numbers, dots, underscores, and hyphens. | Every whitespace or slash form is rejected; ordinary IDs are accepted. | | |
 | CFG-16 | Duplicate resolved executable | Put a real path and a symlink to it in different rules for one user. | Validation rejects the duplicate resolved identity. | | |
 | CFG-17 | Snap launcher rejection | Configure `/snap/bin/APP` or `/usr/bin/snap`. | Validation rejects the shared launcher and explains that a real ELF is required. | | |
 | CFG-18 | Configuration ownership and mode | Test non-root ownership, non-regular file, wrong mode, and a group/other-writable parent directory. | Production validation rejects each case. | | |

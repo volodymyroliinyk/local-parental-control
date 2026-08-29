@@ -82,6 +82,7 @@ Important details:
   executable, regular, and not writable by group or other users. Do not use
   launcher paths such as `/snap/bin/firefox`.
 - Put all real executables used by an application in the same rule. Wrapper scripts and `.desktop` files are not executable identities.
+- Application IDs must be non-empty and cannot contain whitespace, `/`, or `\\`.
 - Use `readlink -f /proc/PID/exe` while an application runs to discover its actual executable.
 - `daily_device_minutes` is required and must be 1–1440 minutes.
 - `continuous_use_minutes` and `break_minutes` are 1–1440 minutes. When omitted, they default to 60 and 10 respectively.

@@ -292,6 +292,11 @@ production validation may reject it. Test user-owned and writable ELF files.
 
 Severity: **Low**
 
+Status: **Resolved on 2026-08-29.** Application ID validation now iterates over
+Unicode code points and rejects every `unicode.IsSpace` character as well as
+forward and backward slashes. Table-driven tests cover ASCII controls, Unicode
+spaces, both slash forms, and valid identifiers.
+
 Validation rejects only a literal space and slash characters, while its error
 says that all whitespace is forbidden. Tabs, newlines, and other whitespace can
 therefore become state keys and appear in diagnostics or CLI output.

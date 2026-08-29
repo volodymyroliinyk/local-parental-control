@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 )
 
 const DefaultPath = "/etc/local-parental-control/config.json"
@@ -328,7 +329,7 @@ func (c *Config) Validate() error {
 		ids, paths := map[string]bool{}, map[string]bool{}
 		for i, app := range uc.Applications {
 			prefix := fmt.Sprintf("users.%s.applications[%d]", username, i)
-			if app.ID == "" || strings.ContainsAny(app.ID, " /\\") {
+			if !validApplicationID(app.ID) {
 				return fmt.Errorf("%s.id must be non-empty and contain no whitespace or slashes", prefix)
 			}
 			if ids[app.ID] {
@@ -357,6 +358,18 @@ func (c *Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func validApplicationID(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		if unicode.IsSpace(r) || r == '/' || r == '\\' {
+			return false
+		}
+	}
+	return true
 }
 
 func validateUniqueUserIDs(usernames []string, lookup func(string) (*user.User, error)) error {

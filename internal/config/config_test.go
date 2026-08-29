@@ -161,6 +161,31 @@ func TestValidateRejectsInvalidConfiguration(t *testing.T) {
 	}
 }
 
+func TestValidApplicationIDRejectsWhitespaceAndSlashes(t *testing.T) {
+	tests := []struct {
+		id   string
+		want bool
+	}{
+		{id: "app", want: true},
+		{id: "media.player-1", want: true},
+		{id: "застосунок", want: true},
+		{id: "", want: false},
+		{id: "has space", want: false},
+		{id: "has\ttab", want: false},
+		{id: "has\nnewline", want: false},
+		{id: "has\rreturn", want: false},
+		{id: "has\u00a0nbsp", want: false},
+		{id: "has\u2003em-space", want: false},
+		{id: "path/segment", want: false},
+		{id: `path\segment`, want: false},
+	}
+	for _, test := range tests {
+		if got := validApplicationID(test.id); got != test.want {
+			t.Errorf("validApplicationID(%q) = %v, want %v", test.id, got, test.want)
+		}
+	}
+}
+
 func TestValidateExplainsEmptyApplicationExecutableRecovery(t *testing.T) {
 	username := currentUser(t).Username
 	cfg := Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]UserConfig{
