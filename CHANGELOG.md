@@ -45,6 +45,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- Schedule, device-limit, and mandatory-break locking now continues when process scanning fails or finds no readable process for a configured user.
+
 - Usage accounting now records seconds only inside observed eligible intervals, clips them at schedule, midnight, and break boundaries, and no longer assigns a full poll to newly observed processes or session transitions.
 
 - Invalid or unpersistable usage state now enters fail-closed recovery mode, keeps configured sessions locked, preserves damaged data, and supports explicit root recovery with a durable crash marker.

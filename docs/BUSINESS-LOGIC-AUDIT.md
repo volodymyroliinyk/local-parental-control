@@ -238,6 +238,13 @@ Recommended change:
 4. Continue schedule/break/device enforcement when application scanning fails,
    and report the degraded application-monitoring state.
 
+Resolution: **Implemented.** The daemon evaluates every configured numeric UID
+through logind independently of `/proc` results. Device time still requires at
+least one observed user process. A failed process scan pauses device and
+application accounting and process termination without weakening schedule,
+device-limit, or break locking. The degraded application-monitoring state and
+scanner error are exposed by `lpctl status` until a scan succeeds.
+
 ### BL-07 — Narrow reset cancels unrelated pending kills
 
 Severity: **Medium**

@@ -19,6 +19,10 @@ Detailed documentation:
 - An application accrues wall-clock time once while one or more matching processes run in an unlocked, active graphical session.
 - A user's device allowance accrues once while an unlocked, active graphical session and any process owned by that user are present, regardless of the number of processes.
 - Outside the allowed hours, after the daily device allowance, or during a mandatory break, the daemon asks `systemd-logind` to lock the controlled user's graphical sessions.
+- Session locking is evaluated for every configured numeric UID even if `/proc`
+  scanning fails or finds no readable process. A scan failure pauses device and
+  application accounting and reports degraded application monitoring in
+  `lpctl status` until scanning recovers.
 - At the limit, every matching process receives `SIGTERM`; processes still present after the grace period receive `SIGKILL`.
 - Usage is stored in `/var/lib/local-parental-control/usage.json` with atomic writes and resets on the next poll after local midnight.
 - Limits and schedules are configured in whole minutes, while observed usage is

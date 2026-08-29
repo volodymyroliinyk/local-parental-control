@@ -385,6 +385,85 @@ func TestTickReturnsScannerError(t *testing.T) {
 	if err := s.tick(); !errors.Is(err, want) {
 		t.Fatalf("tick error = %v, want %v", err, want)
 	}
+	status := s.status()
+	if !status.ApplicationMonitoringDegraded || status.ApplicationMonitoringError != want.Error() {
+		t.Fatalf("scanner failure not reported in status: %+v", status)
+	}
+}
+
+func TestTickEnforcesDeviceAccessWithoutProcessVisibility(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*Service)
+	}{
+		{
+			name: "outside schedule",
+			setup: func(s *Service) {
+				uc := s.cfg.Users["child"]
+				uc.AllowedFrom, uc.AllowedUntil = "08:00", "20:00"
+				s.cfg.Users["child"] = uc
+			},
+		},
+		{
+			name: "device limit reached",
+			setup: func(s *Service) {
+				s.state.DeviceSeconds["child"] = int64(s.cfg.Users["child"].DailyDeviceMinutes * 60)
+			},
+		},
+		{
+			name: "mandatory break",
+			setup: func(s *Service) {
+				s.state.BreakUntil["child"] = s.now().Add(10 * time.Minute)
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			start := time.Date(2026, 8, 19, 7, 0, 0, 0, time.UTC)
+			for _, scanErr := range []error{nil, errors.New("proc unavailable")} {
+				s := testService(t, start, basicConfig(), &fakeScanner{scanErr: scanErr})
+				test.setup(s)
+				err := s.tick()
+				if scanErr == nil && err != nil {
+					t.Fatal(err)
+				}
+				if scanErr != nil && !errors.Is(err, scanErr) {
+					t.Fatalf("tick error = %v, want %v", err, scanErr)
+				}
+				if got := s.sessions.(*fakeSessions).uids; len(got) != 1 || got[0] != 1000 {
+					t.Fatalf("locked UIDs = %v", got)
+				}
+			}
+		})
+	}
+}
+
+func TestSuccessfulScanClearsDegradedMonitoringStatus(t *testing.T) {
+	start := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	fake := &fakeScanner{scanErr: errors.New("proc unavailable")}
+	s := testService(t, start, basicConfig(), fake)
+	if err := s.tick(); err == nil {
+		t.Fatal("expected scanner error")
+	}
+	fake.scanErr = nil
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if status := s.status(); status.ApplicationMonitoringDegraded || status.ApplicationMonitoringError != "" {
+		t.Fatalf("degraded status remained after successful scan: %+v", status)
+	}
+}
+
+func TestScannerFailureRetainsPendingKill(t *testing.T) {
+	start := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
+	s := testService(t, start, basicConfig(), &fakeScanner{scanErr: errors.New("proc unavailable")})
+	s.pendingKill[10] = pendingTermination{deadline: start, process: proc.Info{PID: 10, UID: 1000, Executable: "/opt/app"}}
+	if err := s.tick(); err == nil {
+		t.Fatal("expected scanner error")
+	}
+	if _, ok := s.pendingKill[10]; !ok {
+		t.Fatal("pending kill was discarded without a process identity check")
+	}
 }
 
 func TestScannerFailureBreaksAccountingContinuity(t *testing.T) {

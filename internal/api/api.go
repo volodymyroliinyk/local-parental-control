@@ -14,10 +14,12 @@ type Response struct {
 }
 
 type Status struct {
-	Date             string       `json:"date"`
-	RecoveryRequired bool         `json:"recovery_required,omitempty"`
-	RecoveryReason   string       `json:"recovery_reason,omitempty"`
-	Users            []UserStatus `json:"users"`
+	Date                          string       `json:"date"`
+	RecoveryRequired              bool         `json:"recovery_required,omitempty"`
+	RecoveryReason                string       `json:"recovery_reason,omitempty"`
+	ApplicationMonitoringDegraded bool         `json:"application_monitoring_degraded,omitempty"`
+	ApplicationMonitoringError    string       `json:"application_monitoring_error,omitempty"`
+	Users                         []UserStatus `json:"users"`
 }
 type UserStatus struct {
 	Name                   string              `json:"name"`

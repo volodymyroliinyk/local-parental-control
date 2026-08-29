@@ -44,6 +44,7 @@ type Service struct {
 	sessions                          sessionController
 	lookupUser                        func(string) (*user.User, error)
 	recovery                          *stateRecovery
+	applicationMonitoringError        error
 	previousUsers                     map[string]bool
 	previousApps                      map[string]map[string]bool
 }
@@ -175,11 +176,14 @@ func (s *Service) tick() error {
 	if now.Sub(intervalStart) > maxDelta {
 		intervalStart = now.Add(-maxDelta)
 	}
-	processes, err := s.scanner.Scan()
-	if err != nil {
+	processes, scanErr := s.scanner.Scan()
+	if scanErr != nil {
 		s.previousUsers = make(map[string]bool)
 		s.previousApps = make(map[string]map[string]bool)
-		return err
+		s.applicationMonitoringError = scanErr
+		processes = nil
+	} else {
+		s.applicationMonitoringError = nil
 	}
 	defer func() {
 		for _, process := range processes {
@@ -189,7 +193,7 @@ func (s *Service) tick() error {
 		}
 	}()
 	active := make(map[string]map[string]bool)
-	activeUsers := make(map[string]uint32)
+	activeUsers := make(map[string]bool)
 	current := make(map[int]proc.Info, len(processes))
 	for _, p := range processes {
 		current[p.PID] = p
@@ -197,7 +201,7 @@ func (s *Service) tick() error {
 		if !monitored {
 			continue
 		}
-		activeUsers[username] = p.UID
+		activeUsers[username] = true
 		app, found := findApplication(s.cfg.Users[username], p.Executable)
 		if !found {
 			continue
@@ -213,7 +217,10 @@ func (s *Service) tick() error {
 		active[username][app.ID] = true
 	}
 	unlockedUsers := make(map[string]bool)
-	for username, uid := range activeUsers {
+	for uid, username := range s.uidUsers {
+		if !activeUsers[username] {
+			continue
+		}
 		unlocked, err := s.sessions.Unlocked(uid)
 		if err != nil {
 			s.logger.Warn("session state unavailable; usage paused", "user", username, "uid", uid, "error", err)
@@ -222,11 +229,13 @@ func (s *Service) tick() error {
 		unlockedUsers[username] = unlocked
 	}
 	countedSeconds := make(map[string]int64)
-	for username, uid := range activeUsers {
+	for uid, username := range s.uidUsers {
 		uc := s.cfg.Users[username]
-		intervalFrom, intervalUntil, eligible := accountingInterval(intervalStart, now, uc, s.cfg.Location())
-		if s.previousUsers[username] && unlockedUsers[username] && eligible {
-			countedSeconds[username] = s.accountUserInterval(username, uc, intervalFrom, intervalUntil)
+		if activeUsers[username] {
+			intervalFrom, intervalUntil, eligible := accountingInterval(intervalStart, now, uc, s.cfg.Location())
+			if s.previousUsers[username] && unlockedUsers[username] && eligible {
+				countedSeconds[username] = s.accountUserInterval(username, uc, intervalFrom, intervalUntil)
+			}
 		}
 		if !uc.AllowedAt(now.In(s.cfg.Location())) || s.state.DeviceSeconds[username] >= int64(uc.DailyDeviceMinutes*60) {
 			s.state.ContinuousSeconds[username] = 0
@@ -271,7 +280,7 @@ func (s *Service) tick() error {
 		}
 	}
 	for pid, pending := range s.pendingKill {
-		if !now.Before(pending.deadline) {
+		if scanErr == nil && !now.Before(pending.deadline) {
 			// A PID can be reused after the original process exits. Kill only if the
 			// full process identity still matches at the deadline.
 			if process, exists := current[pid]; exists && process.SameIdentity(pending.process) {
@@ -285,6 +294,9 @@ func (s *Service) tick() error {
 	if err := saveState(s.statePath, s.state); err != nil {
 		s.enterStateRecovery(err, false)
 		return fmt.Errorf("persist usage state; access blocked: %w", err)
+	}
+	if scanErr != nil {
+		return fmt.Errorf("scan processes; application monitoring degraded: %w", scanErr)
 	}
 	return nil
 }
@@ -662,6 +674,10 @@ func (s *Service) statusForUsers(names []string) *api.Status {
 	if s.recovery != nil {
 		result.RecoveryRequired = true
 		result.RecoveryReason = s.recovery.reason.Error()
+	}
+	if s.applicationMonitoringError != nil {
+		result.ApplicationMonitoringDegraded = true
+		result.ApplicationMonitoringError = s.applicationMonitoringError.Error()
 	}
 	for _, name := range names {
 		uc := s.cfg.Users[name]

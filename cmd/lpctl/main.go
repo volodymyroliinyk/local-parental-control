@@ -134,6 +134,11 @@ func printStatus(status *api.Status) {
 		fmt.Printf("Reason: %s\n", status.RecoveryReason)
 		fmt.Println("Recovery: sudo lpctl recover-state")
 	}
+	if status.ApplicationMonitoringDegraded {
+		fmt.Println("Application monitoring: DEGRADED")
+		fmt.Printf("Reason: %s\n", status.ApplicationMonitoringError)
+		fmt.Println("Device schedule, limit, and break enforcement remains active.")
+	}
 	fmt.Printf("Date: %s\n\n", status.Date)
 	for _, user := range status.Users {
 		fmt.Printf("User: %s\n", user.Name)

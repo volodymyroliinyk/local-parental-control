@@ -119,6 +119,7 @@ Wayland and X11 when both are supported.
 | SCH-15 | Unconfigured user login | Sign in as a local user absent from configuration. | Parental-control schedule and counters do not affect that user. | | |
 | SCH-16 | Explicit all-day access | Configure `all_day: true` without `allowed_from` or `allowed_until`; remain active across 23:59 and midnight. | Schedule enforcement never blocks access, the final minute remains eligible, and the new day starts with reset counters. Usage limits and breaks still apply. | | |
 | SCH-17 | Conflicting all-day configuration | Configure `all_day: true` together with either clock-window field and validate. | Validation fails and identifies the mutually exclusive schedule settings. | | |
+| SCH-18 | Enforcement without visible processes | Reach an out-of-hours, device-limit, or mandatory-break condition, then simulate an empty or failed `/proc` scan while a graphical session exists. | The session is still locked for the configured UID. Failed scanning is reported as degraded in `lpctl status`; counters and application termination pause until scanning recovers. | | |
 
 ## Device usage accounting and daily limit
 
