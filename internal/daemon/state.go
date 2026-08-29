@@ -17,14 +17,29 @@ const recoveryMarkerSuffix = ".recovery"
 
 type usageState struct {
 	Date              string                      `json:"date"`
+	Timezone          string                      `json:"timezone,omitempty"`
 	DeviceSeconds     map[string]int64            `json:"device_seconds"`
 	ContinuousSeconds map[string]int64            `json:"continuous_seconds"`
 	BreakUntil        map[string]time.Time        `json:"break_until"`
 	Users             map[string]map[string]int64 `json:"users"`
 }
 
+type clockRollbackError struct {
+	currentDate, recordedDate string
+}
+
+func (e *clockRollbackError) Error() string {
+	return fmt.Sprintf("clock rollback detected: current local date %s precedes recorded state date %s; run lpctl recover-state to authorize a reset", e.currentDate, e.recordedDate)
+}
+
 func newState(date string) usageState {
 	return usageState{Date: date, DeviceSeconds: make(map[string]int64), ContinuousSeconds: make(map[string]int64), BreakUntil: make(map[string]time.Time), Users: make(map[string]map[string]int64)}
+}
+
+func newStateInTimezone(date, timezone string) usageState {
+	state := newState(date)
+	state.Timezone = timezone
+	return state
 }
 
 func loadServiceState(path, date string) (usageState, *stateRecovery) {
@@ -35,12 +50,19 @@ func loadServiceState(path, date string) (usageState, *stateRecovery) {
 	}
 	if markerPresent {
 		if stateErr != nil {
-			state = newState(date)
+			var rollback *clockRollbackError
+			if !errors.As(stateErr, &rollback) {
+				state = newState(date)
+			}
 			markerReset = true
 		}
 		return state, &stateRecovery{reason: errors.New("an earlier usage state recovery did not complete"), resetRequired: markerReset}
 	}
 	if stateErr != nil {
+		var rollback *clockRollbackError
+		if errors.As(stateErr, &rollback) {
+			return state, &stateRecovery{reason: stateErr, resetRequired: true}
+		}
 		return newState(date), &stateRecovery{reason: stateErr, resetRequired: true}
 	}
 	return state, nil
@@ -130,7 +152,7 @@ func (s *Service) recoverState() (string, error) {
 		if err != nil {
 			return "", err
 		}
-		s.state = newState(s.now().In(s.cfg.Location()).Format("2006-01-02"))
+		s.state = newStateInTimezone(s.now().In(s.cfg.Location()).Format("2006-01-02"), s.cfg.Timezone)
 	}
 	if err := saveState(s.statePath, s.state); err != nil {
 		return "", fmt.Errorf("write recovered state: %w", err)
@@ -146,7 +168,7 @@ func (s *Service) recoverState() (string, error) {
 	s.previousUsers = make(map[string]bool)
 	s.previousApps = make(map[string]map[string]bool)
 	if quarantine != "" {
-		return fmt.Sprintf("usage state reset; invalid state preserved at %s", quarantine), nil
+		return fmt.Sprintf("usage state reset; previous state preserved at %s", quarantine), nil
 	}
 	return "usage state persistence restored", nil
 }
@@ -260,9 +282,6 @@ func loadState(path, date string) (usageState, error) {
 			return usageState{}, fmt.Errorf("invalid break deadline for %q", username)
 		}
 	}
-	if state.Date != date {
-		return newState(date), nil
-	}
 	if state.Users == nil {
 		state.Users = make(map[string]map[string]int64)
 	}
@@ -274,6 +293,12 @@ func loadState(path, date string) (usageState, error) {
 	}
 	if state.BreakUntil == nil {
 		state.BreakUntil = make(map[string]time.Time)
+	}
+	if state.Date > date {
+		return state, &clockRollbackError{currentDate: date, recordedDate: state.Date}
+	}
+	if state.Date < date {
+		return newState(date), nil
 	}
 	return state, nil
 }

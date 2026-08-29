@@ -125,10 +125,12 @@ After editing the configuration, run `validate` and then `reload`. This applies
 valid changes without restarting systemd. A failed reload leaves the previous
 configuration active.
 
-`State: RECOVERY REQUIRED` means usage data could not be trusted or persisted.
+`State: RECOVERY REQUIRED` means usage data could not be trusted or persisted,
+or the local-day identity became ambiguous after a date rollback or timezone
+change.
 The daemon remains running and keeps configured graphical sessions locked.
 Inspect `journalctl`, correct any disk or directory-permission problem, then run
-`sudo lpctl recover-state`. Invalid data is retained as a dated
+`sudo lpctl recover-state`. Previous data is retained as a dated
 `usage.json.invalid-*` file before fresh counters are created. Do not delete the
 `.recovery` marker manually; it prevents an interrupted recovery from granting
 fresh allowance on restart.

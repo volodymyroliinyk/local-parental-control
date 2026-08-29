@@ -63,6 +63,13 @@ func New(cfg *config.Config, configPath, statePath, socketPath, statusSocketPath
 	now := time.Now()
 	date := now.In(cfg.Location()).Format("2006-01-02")
 	state, recovery := loadServiceState(statePath, date)
+	if recovery == nil {
+		if state.Timezone == "" {
+			state.Timezone = cfg.Timezone
+		} else if state.Timezone != cfg.Timezone {
+			recovery = &stateRecovery{reason: fmt.Errorf("configured timezone changed from %q to %q; run lpctl recover-state to authorize a new local-day basis", state.Timezone, cfg.Timezone), resetRequired: true}
+		}
+	}
 	s := &Service{cfg: cfg, configPath: configPath, statePath: statePath, socketPath: socketPath, statusSocketPath: statusSocketPath, state: state, scanner: proc.NewScanner(), logger: logger, pendingKill: make(map[int]pendingTermination), sessions: loginctlController{}, now: time.Now, loadConfig: config.LoadSecure, authorizePeer: authorizeRootPeer, peerUID: unixPeerUID, lookupUser: user.Lookup, lastTick: now, previousUsers: make(map[string]bool), previousApps: make(map[string]map[string]bool)}
 	s.recovery = recovery
 	if err := s.resolveUsers(); err != nil {
@@ -159,8 +166,28 @@ func (s *Service) tick() error {
 	}
 	intervalStart := s.lastTick
 	date := now.In(s.cfg.Location()).Format("2006-01-02")
-	if s.state.Date != date {
-		s.state = newState(date)
+	if s.state.Timezone == "" {
+		s.state.Timezone = s.cfg.Timezone
+	} else if s.state.Timezone != s.cfg.Timezone {
+		reason := fmt.Errorf("configured timezone changed from %q to %q", s.state.Timezone, s.cfg.Timezone)
+		s.enterStateRecovery(reason, true)
+		s.logger.Error("timezone change requires usage state recovery", "error", reason)
+		for uid, username := range s.uidUsers {
+			s.lock(uid, username, "timezone change requires recovery")
+		}
+		return nil
+	}
+	if date < s.state.Date {
+		reason := fmt.Errorf("clock rollback detected: current local date %s precedes recorded state date %s", date, s.state.Date)
+		s.enterStateRecovery(reason, true)
+		s.logger.Error("local date rollback requires usage state recovery", "error", reason)
+		for uid, username := range s.uidUsers {
+			s.lock(uid, username, "local date rollback requires recovery")
+		}
+		return nil
+	}
+	if date > s.state.Date {
+		s.state = newStateInTimezone(date, s.cfg.Timezone)
 		s.logger.Info("daily usage counters reset", "date", date)
 		localNow := now.In(s.cfg.Location())
 		midnight := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, s.cfg.Location())

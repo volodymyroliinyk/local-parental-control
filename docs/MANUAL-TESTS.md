@@ -135,7 +135,10 @@ Wayland and X11 when both are supported.
 | DEV-07 | No user processes | End the controlled user's processes/session and wait. | Device usage does not increase without any process attributed to that UID. | | |
 | DEV-08 | Daemon downtime | Stop the daemon for several minutes, restart it, and inspect counters. | Downtime is not added to usage. | | |
 | DEV-09 | Suspend or long scheduling gap | Suspend and resume, or otherwise delay polling well beyond two intervals. | The daemon does not charge the full gap; accounting is capped to avoid adding unavailable time. | | |
-| DEV-10 | Clock moves backward | In a disposable environment, move the wall clock backward while active. | No negative usage is subtracted; daemon remains operational. | | |
+| DEV-10 | Clock moves backward within one date | In a disposable environment, move the wall clock backward without crossing local midnight. | No counters reset or negative usage is subtracted; the unknown interval is not charged. | | |
+| DEV-10A | Clock moves to an earlier local date | Advance into a later configured local date, record usage, then move the clock back across midnight. | The recorded date and usage remain intact, configured sessions lock, and status requires explicit `lpctl recover-state`. | | |
+| DEV-10B | Configured timezone changes | Reload both eastward and westward timezone changes, including changes that keep the same local date. Restart once with a changed timezone. | No timezone change implicitly grants a fresh day; state enters explicit recovery and preserves usage. | | |
+| DEV-10C | DST transition | Run across spring-forward and fall-back transitions without crossing local midnight. | The same state date remains active and no recovery or fresh-day reset occurs. | | |
 | DEV-11 | Reach daily device limit | Use the session until `daily_device_minutes` is consumed. | Screen locks within the polling tolerance and status reports device `BLOCKED`. | | |
 | DEV-12 | Repeated unlock after daily limit | Attempt to unlock several times after DEV-11. | Daemon repeatedly requests a lock; counters do not resume. | | |
 | DEV-13 | Applications survive device limit | Keep configured and unconfigured applications open when the device limit is reached. | Screen locks; applications are not terminated merely because the device limit was reached. | | |
@@ -249,7 +252,7 @@ Wayland and X11 when both are supported.
 | STA-08 | Oversized state | Start with a state file larger than 4 MiB. | Daemon enters recovery mode without reading or replacing the oversized file. | | |
 | STA-09 | Missing maps compatibility | Start with otherwise valid same-day state where optional maps are `null` or omitted as accepted by the decoder. | Service initializes missing maps and continues safely. | | |
 | STA-10 | Failed state save | In a disposable setup, make the state directory temporarily unwritable/incompatible and use the service. | Access becomes blocked, in-memory counters are retained, and persistence automatically recovers after storage is writable again. | | |
-| STA-11 | Explicit state recovery | Start in recovery mode, inspect status, then run `sudo lpctl recover-state`. | Invalid state is preserved as `usage.json.invalid-*`, a valid fresh state is written, the marker is removed, and access again follows normal rules. | | |
+| STA-11 | Explicit state recovery | Start in recovery mode, inspect status, then run `sudo lpctl recover-state`. | Previous state is preserved as `usage.json.invalid-*`, a valid fresh state is written with the current date and timezone, the marker is removed, and access again follows normal rules. | | |
 | STA-12 | Interrupted recovery | Leave a valid `.recovery` marker with `usage.json` absent and restart the daemon. | Recovery mode remains active; the missing file is not treated as a clean installation. | | |
 | STA-13 | Recovery indicator | Observe the controlled user's panel indicator during state recovery. | Label says `BLOCKED` and tooltip says administrator recovery is required without exposing the detailed state error. | | |
 

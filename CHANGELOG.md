@@ -45,6 +45,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- Local-date rollback and configured-timezone changes now preserve usage and enter explicit fail-closed recovery instead of granting another fresh day.
+
 - Application IDs now reject all Unicode whitespace characters and both slash forms instead of only literal spaces.
 
 - Application discovery now applies the same ownership, permissions, executable-file, and ELF checks as production configuration validation.

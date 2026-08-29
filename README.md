@@ -185,11 +185,12 @@ If a new configuration is invalid, `reload` reports an error and the daemon
 continues using the previous rules. A successful `reload` applies changes
 without a systemd restart.
 
-If usage state is damaged, unsafe, oversized, or unreadable, the daemon starts
+If usage state is damaged, unsafe, oversized, unreadable, or ambiguous because
+of a local-date rollback or configured-timezone change, the daemon starts
 in fail-closed recovery mode instead of exiting. It locks every configured
 graphical session, preserves the original state, and reports the problem
 through `lpctl status` and the panel indicator. After inspecting the service
-log, run `sudo lpctl recover-state` to preserve the invalid file under a dated
+log, run `sudo lpctl recover-state` to preserve the previous file under a dated
 `usage.json.invalid-*` name and intentionally create fresh counters. A durable
 marker keeps access blocked if recovery is interrupted. Temporary runtime
 persistence failures also block access; the daemon retains its in-memory
@@ -275,7 +276,19 @@ configuration validates. Package upgrades preserve the administrator's config.
 
 The controlled account must not have sudo/root access. Root can always stop or alter this service. Process polling means a newly launched over-limit application can run for up to one polling interval. Launch and exit instants between samples cannot both be reconstructed; the daemon therefore uses a conservative policy and charges only intervals where the same application is observed at both endpoints. This can undercount by up to one polling interval around a launch or exit, but cannot charge time before first observation. Executables copied to a different path do not match the original rule, so the child account should not have access to terminals, interpreters, alternative launchers, package installation, AppImage execution, Wine, or virtual machines if those are realistic bypasses. Those OS-level restrictions are administrator policy and are deliberately not applied automatically by this project.
 
-Changing the wall clock can affect the daily reset, allowed-hours checks, and break deadlines. The supplied service cannot change the system clock (`ProtectClock=true`), but the administrator must also ensure the child account lacks permission to do so. Device and application usage pause while every graphical session for the user is locked or inactive. They resume after unlock within the same calendar day. Time while the computer is shut down or the daemon is stopped is not added. If session state cannot be read reliably from systemd-logind, usage pauses and the daemon records a warning.
+The persisted state date is a high-water mark: only a later date in the
+configured timezone starts a fresh day. If the wall clock moves to an earlier
+local date, the daemon preserves usage, locks configured sessions, and requires
+explicit root authorization with `sudo lpctl recover-state`. The timezone is
+also persisted as part of the local-day identity, so changing it requires the
+same explicit recovery. A same-date backward correction does not reset counters;
+its unknown interval is not charged. The supplied service cannot
+change the system clock (`ProtectClock=true`), and the child account must also
+lack permission to do so. Device and application usage pause while every
+graphical session for the user is locked or inactive. They resume after unlock
+within the same calendar day. Time while the computer or daemon is stopped is
+not added. If session state cannot be read reliably from systemd-logind, usage
+pauses and the daemon records a warning.
 
 ## License
 

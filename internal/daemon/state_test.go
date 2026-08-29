@@ -47,6 +47,42 @@ func TestStateRoundTripAndDailyReset(t *testing.T) {
 	}
 }
 
+func TestLoadStateRejectsLocalDateRollback(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state", "usage.json")
+	state := newState("2026-08-20")
+	state.DeviceSeconds["child"] = 120
+	if err := saveState(path, state); err != nil {
+		t.Fatal(err)
+	}
+	rollbackState, err := loadState(path, "2026-08-19")
+	if err == nil || !strings.Contains(err.Error(), "clock rollback detected") {
+		t.Fatalf("unexpected rollback error: %v", err)
+	}
+	if rollbackState.Date != "2026-08-20" || rollbackState.DeviceSeconds["child"] != 120 {
+		t.Fatalf("rollback did not return preserved state: %+v", rollbackState)
+	}
+	loaded, err := loadState(path, "2026-08-20")
+	if err != nil || loaded.DeviceSeconds["child"] != 120 {
+		t.Fatalf("recorded date state was not preserved: state=%+v err=%v", loaded, err)
+	}
+}
+
+func TestLoadServiceStatePreservesUsageDuringDateRollbackRecovery(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state", "usage.json")
+	state := newState("2026-08-20")
+	state.DeviceSeconds["child"] = 120
+	if err := saveState(path, state); err != nil {
+		t.Fatal(err)
+	}
+	loaded, recovery := loadServiceState(path, "2026-08-19")
+	if recovery == nil || !recovery.resetRequired || !strings.Contains(recovery.reason.Error(), "clock rollback detected") {
+		t.Fatalf("rollback did not enter recovery: %+v", recovery)
+	}
+	if loaded.Date != "2026-08-20" || loaded.DeviceSeconds["child"] != 120 {
+		t.Fatalf("rollback recovery discarded usage: %+v", loaded)
+	}
+}
+
 func TestLoadStateRejectsUntrustedOrInvalidData(t *testing.T) {
 	tests := map[string]string{
 		"unknown field":           `{"date":"2026-08-20","users":{},"extra":true}`,

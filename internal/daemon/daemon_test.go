@@ -103,6 +103,89 @@ func TestTickResetsDateAndClampsElapsedTime(t *testing.T) {
 	}
 }
 
+func TestTickEntersRecoveryAfterLocalDateRollback(t *testing.T) {
+	start := time.Date(2026, 8, 20, 0, 0, 1, 0, time.UTC)
+	now := start.AddDate(0, 0, -1)
+	s := testService(t, start, basicConfig(), &fakeScanner{})
+	s.state.DeviceSeconds["child"] = 120
+	s.now = func() time.Time { return now }
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if s.recovery == nil || !s.recovery.resetRequired || !strings.Contains(s.recovery.reason.Error(), "clock rollback detected") {
+		t.Fatalf("date rollback did not enter explicit recovery: %+v", s.recovery)
+	}
+	if s.state.Date != "2026-08-20" || s.state.DeviceSeconds["child"] != 120 {
+		t.Fatalf("date rollback reset usage: %+v", s.state)
+	}
+	if got := s.sessions.(*fakeSessions).uids; len(got) != 1 || got[0] != 1000 {
+		t.Fatalf("date rollback did not lock configured UID: %v", got)
+	}
+}
+
+func TestTimezoneChangeRequiresExplicitRecovery(t *testing.T) {
+	start := time.Date(2026, 8, 20, 1, 0, 0, 0, time.UTC)
+	for _, timezone := range []string{"America/Toronto", "Asia/Tokyo"} {
+		t.Run(timezone, func(t *testing.T) {
+			s := testService(t, start, basicConfig(), &fakeScanner{})
+			s.state.DeviceSeconds["child"] = 120
+			s.cfg.Timezone = timezone
+			if err := s.tick(); err != nil {
+				t.Fatal(err)
+			}
+			if s.recovery == nil || !s.recovery.resetRequired || s.state.Date != "2026-08-20" || s.state.DeviceSeconds["child"] != 120 {
+				t.Fatalf("timezone change escaped recovery: state=%+v recovery=%+v", s.state, s.recovery)
+			}
+		})
+	}
+}
+
+func TestStartupPreservesStateAcrossTimezoneChange(t *testing.T) {
+	current, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Timezone: "America/Toronto", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]config.UserConfig{
+		current.Username: {DailyDeviceMinutes: 60, ContinuousUseMinutes: 60, BreakMinutes: 10, AllDay: true},
+	}}
+	statePath := filepath.Join(t.TempDir(), "state", "usage.json")
+	now := time.Now()
+	state := newStateInTimezone(now.In(cfg.Location()).Format("2006-01-02"), "UTC")
+	state.DeviceSeconds[current.Username] = 120
+	if err := saveState(statePath, state); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(cfg, "config.json", statePath, "control.sock", "status.sock", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.recovery == nil || !s.recovery.resetRequired || !strings.Contains(s.recovery.reason.Error(), "configured timezone changed") {
+		t.Fatalf("startup timezone change did not enter recovery: %+v", s.recovery)
+	}
+	if s.state.DeviceSeconds[current.Username] != 120 || s.state.Timezone != "UTC" {
+		t.Fatalf("startup timezone change discarded state: %+v", s.state)
+	}
+}
+
+func TestDSTTransitionDoesNotTriggerDateRecovery(t *testing.T) {
+	location, err := time.LoadLocation("America/Toronto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, 3, 8, 1, 59, 59, 0, location)
+	now := start.Add(2 * time.Second)
+	cfg := basicConfig()
+	cfg.Timezone = "America/Toronto"
+	s := testService(t, start, cfg, &fakeScanner{processes: []proc.Info{{PID: 1, UID: 1000}}})
+	s.now = func() time.Time { return now }
+	if err := s.tick(); err != nil {
+		t.Fatal(err)
+	}
+	if s.recovery != nil || s.state.Date != "2026-03-08" {
+		t.Fatalf("DST transition changed local-day state: state=%+v recovery=%+v", s.state, s.recovery)
+	}
+}
+
 func TestTickCountsDeviceOnceAndLocksAtDailyLimit(t *testing.T) {
 	start := time.Date(2026, 8, 19, 12, 0, 0, 0, time.UTC)
 	now := start.Add(2 * time.Second)
@@ -1001,7 +1084,7 @@ func testService(t *testing.T, start time.Time, cfg *config.Config, scanner proc
 	return &Service{
 		cfg:           cfg,
 		statePath:     filepath.Join(t.TempDir(), "state", "usage.json"),
-		state:         newState(start.In(cfg.Location()).Format("2006-01-02")),
+		state:         newStateInTimezone(start.In(cfg.Location()).Format("2006-01-02"), cfg.Timezone),
 		scanner:       scanner,
 		logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		uidUsers:      map[uint32]string{1000: "child"},

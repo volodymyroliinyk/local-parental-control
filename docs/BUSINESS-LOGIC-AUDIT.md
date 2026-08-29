@@ -309,6 +309,14 @@ such as ASCII letters, digits, `_`, `.`, and `-`.
 
 Severity: **Low**
 
+Status: **Resolved on 2026-08-29.** The persisted state date is now a high-water
+mark: only a later local date starts a fresh day. An earlier date enters
+fail-closed recovery, preserves usage, and requires explicit root recovery. The
+configured timezone is persisted as part of that day identity, so changing it
+also requires recovery instead of implicitly resetting counters. Same-date
+backward corrections clamp the unknown interval. Tests cover forward and
+backward dates, timezone changes, startup recovery, and DST transitions.
+
 Every mismatch between the persisted state date and the current configured
 local date creates a new empty state. If the clock moves forward to another
 date and is then corrected backward, both transitions reset usage. The README
