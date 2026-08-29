@@ -262,6 +262,13 @@ Recommended change: retain pending entries unless their process belongs to the
 reset user and, for an application reset, matches that application rule. Add a
 multi-user, multi-application regression test.
 
+Resolution: **Implemented.** Reset now filters pending forced terminations by
+the process's recorded numeric UID. An application-only reset additionally
+matches the recorded executable against that user's selected application rule.
+Pending terminations for other users and applications retain their original
+deadlines. Configuration reload continues to cancel all pending terminations
+because it can replace or raise any rule.
+
 ### BL-08 — Discovery and production validation disagree
 
 Severity: **Low**

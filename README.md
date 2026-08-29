@@ -105,7 +105,8 @@ blocked. Programs remain running and unsaved work is retained. The desktop
 environment must support systemd-logind's lock request; otherwise enforcement
 is not possible and the daemon records an error. `lpctl reset USER`
 resets both the device and application counters; resetting one application does
-not reset device time.
+not reset device time. A reset cancels only pending forced terminations for that
+user, and an application reset narrows cancellation to that application.
 
 After `continuous_use_minutes` of use, the screen remains locked for
 `break_minutes`. Break progress is persisted, so restarting the daemon does not

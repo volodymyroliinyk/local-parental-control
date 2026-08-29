@@ -547,6 +547,7 @@ func TestExecuteStatusAndReset(t *testing.T) {
 		"a-user": {DailyDeviceMinutes: 60, ContinuousUseMinutes: 60, BreakMinutes: 10, AllowedFrom: "00:00", AllowedUntil: "23:59", Applications: []config.Application{{ID: "x", Name: "X", Executables: []string{"/x"}, DailyMinutes: 1}}},
 	}}
 	s := testService(t, start, cfg, &fakeScanner{})
+	s.uidUsers = map[uint32]string{1000: "z-user", 2000: "a-user"}
 	s.state.Users["z-user"] = map[string]int64{"a": 60}
 	s.state.DeviceSeconds["z-user"] = 60
 	status := s.execute(api.Request{Command: "status"})
@@ -584,6 +585,49 @@ func TestExecuteStatusAndReset(t *testing.T) {
 	}
 	if response := s.execute(api.Request{Command: "unknown"}); response.OK || response.Error == "" {
 		t.Fatalf("unexpected command response: %+v", response)
+	}
+}
+
+func TestResetCancelsOnlyMatchingPendingTerminations(t *testing.T) {
+	start := time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC)
+	cfg := &config.Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]config.UserConfig{
+		"alice": {DailyDeviceMinutes: 60, ContinuousUseMinutes: 60, BreakMinutes: 10, AllDay: true, Applications: []config.Application{
+			{ID: "browser", Name: "Browser", Executables: []string{"/opt/browser"}, DailyMinutes: 10},
+			{ID: "game", Name: "Game", Executables: []string{"/opt/game"}, DailyMinutes: 10},
+		}},
+		"bob": {DailyDeviceMinutes: 60, ContinuousUseMinutes: 60, BreakMinutes: 10, AllDay: true, Applications: []config.Application{
+			{ID: "browser", Name: "Browser", Executables: []string{"/opt/browser"}, DailyMinutes: 10},
+		}},
+	}}
+	s := testService(t, start, cfg, &fakeScanner{})
+	s.uidUsers = map[uint32]string{1000: "alice", 2000: "bob"}
+	s.pendingKill = map[int]pendingTermination{
+		1: {deadline: start, process: proc.Info{PID: 1, UID: 1000, Executable: "/opt/browser"}},
+		2: {deadline: start, process: proc.Info{PID: 2, UID: 1000, Executable: "/opt/game"}},
+		3: {deadline: start, process: proc.Info{PID: 3, UID: 2000, Executable: "/opt/browser"}},
+	}
+
+	if response := s.execute(api.Request{Command: "reset", User: "alice", Application: "browser"}); !response.OK {
+		t.Fatalf("application reset failed: %+v", response)
+	}
+	if _, exists := s.pendingKill[1]; exists {
+		t.Fatal("matching application termination was retained")
+	}
+	if _, exists := s.pendingKill[2]; !exists {
+		t.Fatal("another application termination was cancelled")
+	}
+	if _, exists := s.pendingKill[3]; !exists {
+		t.Fatal("another user's termination was cancelled")
+	}
+
+	if response := s.execute(api.Request{Command: "reset", User: "alice"}); !response.OK {
+		t.Fatalf("user reset failed: %+v", response)
+	}
+	if _, exists := s.pendingKill[2]; exists {
+		t.Fatal("matching user termination was retained")
+	}
+	if _, exists := s.pendingKill[3]; !exists || len(s.pendingKill) != 1 {
+		t.Fatalf("full user reset changed unrelated terminations: %+v", s.pendingKill)
 	}
 }
 

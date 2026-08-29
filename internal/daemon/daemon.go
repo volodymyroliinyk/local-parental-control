@@ -408,6 +408,33 @@ func (s *Service) used(user, app string) int64 {
 	}
 	return s.state.Users[user][app]
 }
+
+func (s *Service) cancelPendingTerminations(username, applicationID string) {
+	var uid uint32
+	foundUser := false
+	for candidateUID, candidateUsername := range s.uidUsers {
+		if candidateUsername == username {
+			uid = candidateUID
+			foundUser = true
+			break
+		}
+	}
+	if !foundUser {
+		return
+	}
+	for pid, pending := range s.pendingKill {
+		if pending.process.UID != uid {
+			continue
+		}
+		if applicationID != "" {
+			app, found := findApplication(s.cfg.Users[username], pending.process.Executable)
+			if !found || app.ID != applicationID {
+				continue
+			}
+		}
+		delete(s.pendingKill, pid)
+	}
+}
 func (s *Service) add(user, app string, seconds int64) {
 	if s.state.Users[user] == nil {
 		s.state.Users[user] = make(map[string]int64)
@@ -648,8 +675,8 @@ func (s *Service) execute(req api.Request) api.Response {
 				delete(s.state.Users[req.User], req.Application)
 			}
 		}
-		// Reset is an explicit administrative unblock operation.
-		s.pendingKill = make(map[int]pendingTermination)
+		// Reset cancels only forced terminations covered by its administrative scope.
+		s.cancelPendingTerminations(req.User, req.Application)
 		if err := saveState(s.statePath, s.state); err != nil {
 			s.enterStateRecovery(err, false)
 			return api.Response{Error: err.Error()}
