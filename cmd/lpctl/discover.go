@@ -2,16 +2,16 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/volodymyroliinyk/local-parental-control/internal/config"
 )
 
 type discoveredApplication struct {
@@ -142,6 +142,10 @@ func discoverSnap(keyword string, add func(discoveredApplication)) {
 }
 
 func discoverSnapPackage(root, pkg, keyword string, add func(discoveredApplication)) {
+	discoverSnapPackageForUID(root, pkg, keyword, 0, add)
+}
+
+func discoverSnapPackageForUID(root, pkg, keyword string, expectedUID uint32, add func(discoveredApplication)) {
 	resolvedRoot, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return
@@ -154,7 +158,7 @@ func discoverSnapPackage(root, pkg, keyword string, add func(discoveredApplicati
 		if !strings.Contains(name, keyword) && !strings.Contains(name, strings.ToLower(pkg)) {
 			return nil
 		}
-		if executable, valid := nativeExecutable(path); valid {
+		if executable, valid := nativeExecutableForUID(path, expectedUID); valid {
 			relative, relErr := filepath.Rel(resolvedRoot, executable)
 			if relErr == nil && relative != "." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 				add(discoveredApplication{Source: "snap", Package: pkg, Executable: filepath.Join(root, relative)})
@@ -165,27 +169,13 @@ func discoverSnapPackage(root, pkg, keyword string, add func(discoveredApplicati
 }
 
 func nativeExecutable(path string) (string, bool) {
-	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return "", false
-	}
-	if filepath.Clean(resolved) == "/usr/bin/snap" {
-		return "", false
-	}
-	info, err := os.Stat(resolved)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
-		return "", false
-	}
-	f, err := os.Open(resolved)
-	if err != nil {
-		return "", false
-	}
-	defer f.Close()
-	header := make([]byte, 4)
-	if _, err := io.ReadFull(f, header); err != nil || !bytes.Equal(header, []byte{0x7f, 'E', 'L', 'F'}) {
-		return "", false
-	}
-	return filepath.Clean(resolved), true
+	return nativeExecutableForUID(path, 0)
+
+}
+
+func nativeExecutableForUID(path string, expectedUID uint32) (string, bool) {
+	resolved, err := config.InspectNativeExecutable(path, expectedUID)
+	return resolved, err == nil
 }
 
 func commandOutput(name string, args ...string) (string, bool) {

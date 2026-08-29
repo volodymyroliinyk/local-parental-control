@@ -213,6 +213,7 @@ Wayland and X11 when both are supported.
 | CLI-10 | Snap discovery | Discover an installed Snap application. | Output uses stable real-ELF identities under `/snap/PACKAGE/current`, never `/snap/bin/*`; supported results validate successfully. | | |
 | CLI-11 | Snap refresh continuity | Configure a discovered Snap executable, start it, refresh the package to a new revision, and start it again without reloading the daemon. | Both the already-running old revision and the newly launched revision accrue against and enforce the same application limit. | | |
 | CLI-11 | Discovery miss | Search for a nonexistent keyword. | Command reports no configuration-ready path and exits nonzero. | | |
+| CLI-12 | Unsafe discovery candidate | Put matching user-owned and group- or other-writable ELF files in a temporary `PATH` directory and run discovery. | Neither file is printed as `supported`; every printed result passes production validation. | | |
 | CLI-12 | Read-only status privacy | Sign in as each configured user and observe the indicator/status endpoint through the shipped client. | Each user receives only their own status, never another user's counters or rules. | | |
 | CLI-13 | Unconfigured status client | Start the indicator as an unconfigured local user. | It exits quietly and exposes no configured-user data. | | |
 

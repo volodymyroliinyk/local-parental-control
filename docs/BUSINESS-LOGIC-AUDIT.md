@@ -273,6 +273,11 @@ multi-user, multi-application regression test.
 
 Severity: **Low**
 
+Status: **Resolved on 2026-08-29.** Discovery and secure configuration loading
+now share one native-executable inspection routine. A `supported` discovery
+result must be a root-owned executable regular ELF file that is not writable by
+group or others. Regression tests cover user-owned and writable ELF files.
+
 `lpctl discover` labels a regular executable ELF as `supported`, but its helper
 does not check root ownership or group/other writability. `lpctl validate`
 correctly applies those additional production checks. Consequently discovery

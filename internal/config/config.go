@@ -130,27 +130,9 @@ func (c *Config) validateExecutablesAt(expectedUID uint32, snapRoot string) erro
 					stored = stable
 					validationPath = stable
 				}
-				resolved, err := filepath.EvalSymlinks(validationPath)
+				resolved, err := InspectNativeExecutable(validationPath, expectedUID)
 				if err != nil {
 					return fmt.Errorf("application %q executable %q: %w", app.ID, executable, err)
-				}
-				info, err := os.Stat(resolved)
-				if err != nil {
-					return fmt.Errorf("application %q executable %q: %w", app.ID, resolved, err)
-				}
-				stat, ok := info.Sys().(*syscall.Stat_t)
-				if !ok || stat.Uid != expectedUID || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 || info.Mode().Perm()&0022 != 0 {
-					return fmt.Errorf("application %q executable %q must be a UID %d-owned executable regular file not writable by group or others", app.ID, resolved, expectedUID)
-				}
-				if filepath.Clean(resolved) == "/usr/bin/snap" {
-					return fmt.Errorf("application %q executable %q resolves to the shared Snap launcher /usr/bin/snap; Snap applications are not supported", app.ID, executable)
-				}
-				isELF, err := hasELFHeader(resolved)
-				if err != nil {
-					return fmt.Errorf("application %q executable %q: %w", app.ID, resolved, err)
-				}
-				if !isELF {
-					return fmt.Errorf("application %q executable %q is not a native ELF executable; scripts and application launchers cannot be matched through /proc/PID/exe", app.ID, executable)
 				}
 				if stored == "" {
 					stored = filepath.Clean(resolved)
@@ -165,6 +147,34 @@ func (c *Config) validateExecutablesAt(expectedUID uint32, snapRoot string) erro
 		c.Users[username] = userConfig
 	}
 	return nil
+}
+
+// InspectNativeExecutable resolves path and applies the same executable safety
+// checks used by production configuration loading and application discovery.
+func InspectNativeExecutable(path string, expectedUID uint32) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != expectedUID || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 || info.Mode().Perm()&0022 != 0 {
+		return "", fmt.Errorf("must be a UID %d-owned executable regular file not writable by group or others", expectedUID)
+	}
+	if filepath.Clean(resolved) == "/usr/bin/snap" {
+		return "", errors.New("resolves to the shared Snap launcher /usr/bin/snap; Snap applications are not supported")
+	}
+	isELF, err := hasELFHeader(resolved)
+	if err != nil {
+		return "", err
+	}
+	if !isELF {
+		return "", errors.New("is not a native ELF executable; scripts and application launchers cannot be matched through /proc/PID/exe")
+	}
+	return filepath.Clean(resolved), nil
 }
 
 func stableSnapExecutable(executable, snapRoot string) (string, bool) {

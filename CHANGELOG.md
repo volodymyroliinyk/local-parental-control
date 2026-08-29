@@ -45,6 +45,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- Application discovery now applies the same ownership, permissions, executable-file, and ELF checks as production configuration validation.
+
 - Resetting one user or application now preserves unrelated pending forced terminations and their original grace-period deadlines.
 
 - Schedule, device-limit, and mandatory-break locking now continues when process scanning fails or finds no readable process for a configured user.

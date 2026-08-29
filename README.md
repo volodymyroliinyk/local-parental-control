@@ -174,7 +174,9 @@ sudo journalctl -u local-parental-control.service
 
 `lpctl discover KEYWORD` searches `PATH`, native package databases, and
 installed Snap packages. Every returned `supported` path identifies a real ELF
-executable suitable for an `executables` array. The command never prints
+executable owned by root and not writable by group or others, using the same
+checks as production configuration validation, and is suitable for an
+`executables` array. The command never prints
 launcher paths such as `/snap/bin/firefox`. Snap results use stable
 `/snap/PACKAGE/current/...` identities that continue matching after refreshes.
 
