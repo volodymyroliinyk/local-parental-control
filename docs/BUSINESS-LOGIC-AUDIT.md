@@ -195,6 +195,11 @@ Recommended change:
 
 Severity: **Medium**
 
+Status: **Resolved on 2026-08-29.** A user may select explicit `all_day: true`
+without clock-window fields. The daemon treats every second of the local day as
+schedule-eligible, while daily limits and breaks continue to apply. Validation
+rejects a configuration that combines all-day mode with either clock boundary.
+
 The configuration accepts device and application limits up to 1440 minutes,
 but requires `allowed_from < allowed_until` using minute-of-day values. The
 widest possible window is `00:00`–`23:59`, whose exclusive end blocks the final
@@ -205,17 +210,19 @@ Recommended change: support an explicit all-day mode. Prefer an unambiguous
 field or omitted schedule over assigning surprising meaning to equal endpoints.
 Keep overnight-window support as a separate design decision.
 
-Resolution: **Implemented.** A user may select explicit `all_day: true` without
-clock-window fields. The daemon treats every second of the local day as
-schedule-eligible, while daily limits and breaks continue to apply. Validation
-rejects a configuration that combines all-day mode with either clock boundary.
-
 Regression tests cover the final minute, local midnight, DST dates, and status
 rendering.
 
 ### BL-06 — Access enforcement is coupled to process discovery
 
 Severity: **Medium**
+
+Status: **Resolved on 2026-08-29.** The daemon evaluates every configured
+numeric UID through logind independently of `/proc` results. Device time still
+requires at least one observed user process. A failed process scan pauses device
+and application accounting and process termination without weakening schedule,
+device-limit, or break locking. The degraded application-monitoring state and
+scanner error are exposed by `lpctl status` until a scan succeeds.
 
 The daemon builds `activeUsers` only from processes returned by the `/proc`
 scanner and applies schedule, device-limit, and break locking only to that map.
@@ -238,16 +245,16 @@ Recommended change:
 4. Continue schedule/break/device enforcement when application scanning fails,
    and report the degraded application-monitoring state.
 
-Resolution: **Implemented.** The daemon evaluates every configured numeric UID
-through logind independently of `/proc` results. Device time still requires at
-least one observed user process. A failed process scan pauses device and
-application accounting and process termination without weakening schedule,
-device-limit, or break locking. The degraded application-monitoring state and
-scanner error are exposed by `lpctl status` until a scan succeeds.
-
 ### BL-07 — Narrow reset cancels unrelated pending kills
 
 Severity: **Medium**
+
+Status: **Resolved on 2026-08-29.** Reset now filters pending forced
+terminations by the process's recorded numeric UID. An application-only reset
+additionally matches the recorded executable against that user's selected
+application rule. Pending terminations for other users and applications retain
+their original deadlines. Configuration reload continues to cancel all pending
+terminations because it can replace or raise any rule.
 
 Both a full-user reset and an application-only reset replace the entire
 `pendingKill` map. Therefore `lpctl reset alice browser` can cancel a pending
@@ -261,13 +268,6 @@ matter during administrative recovery or testing.
 Recommended change: retain pending entries unless their process belongs to the
 reset user and, for an application reset, matches that application rule. Add a
 multi-user, multi-application regression test.
-
-Resolution: **Implemented.** Reset now filters pending forced terminations by
-the process's recorded numeric UID. An application-only reset additionally
-matches the recorded executable against that user's selected application rule.
-Pending terminations for other users and applications retain their original
-deadlines. Configuration reload continues to cancel all pending terminations
-because it can replace or raise any rule.
 
 ### BL-08 — Discovery and production validation disagree
 
