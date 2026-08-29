@@ -212,6 +212,75 @@ func TestValidateAcceptsBoundariesAndHelpers(t *testing.T) {
 	}
 }
 
+func TestValidateAcceptsExplicitAllDaySchedule(t *testing.T) {
+	username := currentUser(t).Username
+	cfg := Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]UserConfig{
+		username: {DailyDeviceMinutes: 1440, ContinuousUseMinutes: 60, BreakMinutes: 10, AllDay: true},
+	}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	userConfig := cfg.Users[username]
+	for _, instant := range []time.Time{
+		time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 1, 1, 23, 59, 59, 0, time.UTC),
+	} {
+		if !userConfig.AllowedAt(instant) {
+			t.Fatalf("all-day schedule rejected %s", instant)
+		}
+	}
+}
+
+func TestAllDayScheduleIncludesDSTTransitions(t *testing.T) {
+	location, err := time.LoadLocation("America/Toronto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	userConfig := UserConfig{AllDay: true}
+	for _, instant := range []time.Time{
+		time.Date(2026, 3, 8, 1, 59, 59, 0, location),
+		time.Date(2026, 3, 8, 3, 0, 0, 0, location),
+		time.Date(2026, 11, 1, 1, 30, 0, 0, location),
+	} {
+		if !userConfig.AllowedAt(instant) {
+			t.Fatalf("all-day schedule rejected DST instant %s", instant)
+		}
+	}
+}
+
+func TestLoadExplicitAllDaySchedule(t *testing.T) {
+	username := currentUser(t).Username
+	contents := map[string]any{"timezone": "UTC", "users": map[string]any{
+		username: map[string]any{"daily_device_minutes": 1440, "all_day": true, "applications": []any{}},
+	}}
+	cfg, err := Load(writeConfig(t, contents))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Users[username].AllDay {
+		t.Fatal("all_day was not loaded")
+	}
+}
+
+func TestValidateRejectsAllDayWithClockWindow(t *testing.T) {
+	username := currentUser(t).Username
+	for name, clocks := range map[string][2]string{
+		"from":  {"00:00", ""},
+		"until": {"", "23:59"},
+		"both":  {"00:00", "23:59"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]UserConfig{
+				username: {DailyDeviceMinutes: 60, ContinuousUseMinutes: 60, BreakMinutes: 10, AllDay: true, AllowedFrom: clocks[0], AllowedUntil: clocks[1]},
+			}}
+			err := cfg.Validate()
+			if err == nil || !strings.Contains(err.Error(), "all_day cannot be combined") {
+				t.Fatalf("unexpected validation error: %v", err)
+			}
+		})
+	}
+}
+
 func TestValidateRejectsCleanedDuplicateExecutable(t *testing.T) {
 	username := currentUser(t).Username
 	cfg := Config{Timezone: "UTC", PollIntervalSeconds: 2, TerminationGraceSeconds: 3, Users: map[string]UserConfig{username: {DailyDeviceMinutes: 10, ContinuousUseMinutes: 60, BreakMinutes: 10, AllowedFrom: "08:00", AllowedUntil: "20:00", Applications: []Application{

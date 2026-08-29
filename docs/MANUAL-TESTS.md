@@ -117,6 +117,8 @@ Wayland and X11 when both are supported.
 | SCH-13 | Multiple graphical sessions for one user | Open two graphical sessions for the controlled UID and reach an out-of-hours condition. | All graphical sessions returned by logind receive lock requests. | | |
 | SCH-14 | TTY/non-graphical session | Log in on a TTY during allowed time and observe counters; also trigger an out-of-hours lock. | TTY alone is not treated as an unlocked graphical session; graphical lock behavior is unaffected. | | |
 | SCH-15 | Unconfigured user login | Sign in as a local user absent from configuration. | Parental-control schedule and counters do not affect that user. | | |
+| SCH-16 | Explicit all-day access | Configure `all_day: true` without `allowed_from` or `allowed_until`; remain active across 23:59 and midnight. | Schedule enforcement never blocks access, the final minute remains eligible, and the new day starts with reset counters. Usage limits and breaks still apply. | | |
+| SCH-17 | Conflicting all-day configuration | Configure `all_day: true` together with either clock-window field and validate. | Validation fails and identifies the mutually exclusive schedule settings. | | |
 
 ## Device usage accounting and daily limit
 

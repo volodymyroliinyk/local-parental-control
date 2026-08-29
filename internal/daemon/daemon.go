@@ -319,6 +319,9 @@ func accountingInterval(start, end time.Time, uc config.UserConfig, location *ti
 	if !start.Before(end) {
 		return end, end, false
 	}
+	if uc.AllDay {
+		return start, end, true
+	}
 	localEnd := end.In(location)
 	dayStart := time.Date(localEnd.Year(), localEnd.Month(), localEnd.Day(), 0, 0, 0, 0, location)
 	fromClock, _ := time.Parse("15:04", uc.AllowedFrom)
@@ -664,7 +667,7 @@ func (s *Service) statusForUsers(names []string) *api.Status {
 		uc := s.cfg.Users[name]
 		deviceLimit := int64(uc.DailyDeviceMinutes * 60)
 		deviceUsed := s.state.DeviceSeconds[name]
-		us := api.UserStatus{Name: name, DeviceUsedSeconds: deviceUsed, DeviceLimitSeconds: deviceLimit, AllowedFrom: uc.AllowedFrom, AllowedUntil: uc.AllowedUntil, DeviceBlocked: s.recovery != nil || deviceUsed >= deviceLimit || !uc.AllowedAt(s.now().In(s.cfg.Location())), ContinuousUsedSeconds: s.state.ContinuousSeconds[name], ContinuousLimitSeconds: int64(uc.ContinuousUseMinutes * 60), RecoveryRequired: s.recovery != nil}
+		us := api.UserStatus{Name: name, DeviceUsedSeconds: deviceUsed, DeviceLimitSeconds: deviceLimit, AllDay: uc.AllDay, AllowedFrom: uc.AllowedFrom, AllowedUntil: uc.AllowedUntil, DeviceBlocked: s.recovery != nil || deviceUsed >= deviceLimit || !uc.AllowedAt(s.now().In(s.cfg.Location())), ContinuousUsedSeconds: s.state.ContinuousSeconds[name], ContinuousLimitSeconds: int64(uc.ContinuousUseMinutes * 60), RecoveryRequired: s.recovery != nil}
 		if until, ok := s.state.BreakUntil[name]; ok && s.now().Before(until) {
 			us.BreakUntil = until.In(s.cfg.Location()).Format(time.RFC3339)
 			us.DeviceBlocked = true

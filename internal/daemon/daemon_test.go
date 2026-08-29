@@ -237,6 +237,28 @@ func TestAccountingIntersectsScheduleBoundariesAndMidnight(t *testing.T) {
 	}
 }
 
+func TestAccountingIntervalAllowsFinalMinuteInAllDayMode(t *testing.T) {
+	start := time.Date(2026, 1, 1, 23, 59, 0, 0, time.UTC)
+	end := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	gotStart, gotEnd, ok := accountingInterval(start, end, config.UserConfig{AllDay: true}, time.UTC)
+	if !ok || !gotStart.Equal(start) || !gotEnd.Equal(end) {
+		t.Fatalf("accountingInterval() = %s, %s, %v", gotStart, gotEnd, ok)
+	}
+}
+
+func TestAccountingIntervalAllDayAcrossDSTTransition(t *testing.T) {
+	location, err := time.LoadLocation("America/Toronto")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, 3, 8, 1, 59, 0, 0, location)
+	end := time.Date(2026, 3, 8, 3, 1, 0, 0, location)
+	gotStart, gotEnd, ok := accountingInterval(start, end, config.UserConfig{AllDay: true}, location)
+	if !ok || !gotStart.Equal(start) || !gotEnd.Equal(end) || gotEnd.Sub(gotStart) != 2*time.Minute {
+		t.Fatalf("accountingInterval() = %s, %s, %v", gotStart, gotEnd, ok)
+	}
+}
+
 func TestNewApplicationIsNotChargedBeforeFirstObservation(t *testing.T) {
 	start := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
 	now := start.Add(60 * time.Second)
@@ -458,6 +480,11 @@ func TestExecuteStatusAndReset(t *testing.T) {
 	}
 	if status.Status.Users[1].DeviceUsedSeconds != 60 || status.Status.Users[1].DeviceLimitSeconds != 3600 {
 		t.Fatalf("unexpected device status: %+v", status.Status.Users[1])
+	}
+	s.cfg.Users["z-user"] = config.UserConfig{DailyDeviceMinutes: 60, ContinuousUseMinutes: 60, BreakMinutes: 10, AllDay: true, Applications: s.cfg.Users["z-user"].Applications}
+	status = s.execute(api.Request{Command: "status"})
+	if !status.Status.Users[1].AllDay || status.Status.Users[1].AllowedFrom != "" || status.Status.Users[1].AllowedUntil != "" {
+		t.Fatalf("unexpected all-day status: %+v", status.Status.Users[1])
 	}
 
 	if response := s.execute(api.Request{Command: "reset", User: "missing"}); response.OK || response.Error == "" {

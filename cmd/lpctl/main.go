@@ -141,7 +141,8 @@ func printStatus(status *api.Status) {
 		if user.DeviceBlocked {
 			state = "BLOCKED"
 		}
-		fmt.Printf("  Device                   %6.1f / %-6.1f min  %s (%s-%s)\n", float64(user.DeviceUsedSeconds)/60, float64(user.DeviceLimitSeconds)/60, state, user.AllowedFrom, user.AllowedUntil)
+		schedule := scheduleDescription(user)
+		fmt.Printf("  Device                   %6.1f / %-6.1f min  %s (%s)\n", float64(user.DeviceUsedSeconds)/60, float64(user.DeviceLimitSeconds)/60, state, schedule)
 		if user.BreakUntil != "" {
 			fmt.Printf("  Break                    active until %s\n", user.BreakUntil)
 		} else {
@@ -156,6 +157,13 @@ func printStatus(status *api.Status) {
 		}
 		fmt.Println()
 	}
+}
+
+func scheduleDescription(user api.UserStatus) string {
+	if user.AllDay {
+		return "all day"
+	}
+	return user.AllowedFrom + "-" + user.AllowedUntil
 }
 
 func usage() {

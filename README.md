@@ -81,7 +81,11 @@ Important details:
 - Use `readlink -f /proc/PID/exe` while an application runs to discover its actual executable.
 - `daily_device_minutes` is required and must be 1–1440 minutes.
 - `continuous_use_minutes` and `break_minutes` are 1–1440 minutes. When omitted, they default to 60 and 10 respectively.
-- `allowed_from` and `allowed_until` are required 24-hour `HH:MM` values. The start is inclusive, the end is exclusive, and the start must be earlier than the end; overnight windows are not supported.
+- Configure either `all_day: true` or both `allowed_from` and `allowed_until`.
+  All-day mode permits access at every local time, subject to usage limits and
+  breaks, and must not include clock-window fields. For a clock window, use
+  24-hour `HH:MM` values; the start is inclusive, the end is exclusive, and the
+  start must be earlier than the end. Overnight windows are not supported.
 - Application rules are optional. An application limit is 1–1440 minutes. The polling interval and termination grace period are 1–60 seconds.
 - Unknown JSON fields are rejected to catch misspelled settings.
 

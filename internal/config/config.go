@@ -30,6 +30,7 @@ type UserConfig struct {
 	DailyDeviceMinutes   int           `json:"daily_device_minutes"`
 	ContinuousUseMinutes int           `json:"continuous_use_minutes"`
 	BreakMinutes         int           `json:"break_minutes"`
+	AllDay               bool          `json:"all_day"`
 	AllowedFrom          string        `json:"allowed_from"`
 	AllowedUntil         string        `json:"allowed_until"`
 	Applications         []Application `json:"applications"`
@@ -297,16 +298,22 @@ func (c *Config) Validate() error {
 		if uc.BreakMinutes < 1 || uc.BreakMinutes > 1440 {
 			return fmt.Errorf("users.%s.break_minutes must be between 1 and 1440", username)
 		}
-		from, err := parseClock(uc.AllowedFrom)
-		if err != nil {
-			return fmt.Errorf("users.%s.allowed_from: %w", username, err)
-		}
-		until, err := parseClock(uc.AllowedUntil)
-		if err != nil {
-			return fmt.Errorf("users.%s.allowed_until: %w", username, err)
-		}
-		if from >= until {
-			return fmt.Errorf("users.%s allowed_from must be earlier than allowed_until", username)
+		if uc.AllDay {
+			if uc.AllowedFrom != "" || uc.AllowedUntil != "" {
+				return fmt.Errorf("users.%s all_day cannot be combined with allowed_from or allowed_until", username)
+			}
+		} else {
+			from, err := parseClock(uc.AllowedFrom)
+			if err != nil {
+				return fmt.Errorf("users.%s.allowed_from: %w", username, err)
+			}
+			until, err := parseClock(uc.AllowedUntil)
+			if err != nil {
+				return fmt.Errorf("users.%s.allowed_until: %w", username, err)
+			}
+			if from >= until {
+				return fmt.Errorf("users.%s allowed_from must be earlier than allowed_until", username)
+			}
 		}
 		ids, paths := map[string]bool{}, map[string]bool{}
 		for i, app := range uc.Applications {
@@ -365,9 +372,12 @@ func validateUniqueUserIDs(usernames []string, lookup func(string) (*user.User, 
 	return nil
 }
 
-// AllowedAt reports whether local wall-clock time is within the configured
-// half-open interval [allowed_from, allowed_until).
+// AllowedAt reports whether local wall-clock time is allowed by the all-day
+// schedule or the configured half-open interval [allowed_from, allowed_until).
 func (u UserConfig) AllowedAt(t time.Time) bool {
+	if u.AllDay {
+		return true
+	}
 	from, _ := parseClock(u.AllowedFrom)
 	until, _ := parseClock(u.AllowedUntil)
 	minute := t.Hour()*60 + t.Minute()

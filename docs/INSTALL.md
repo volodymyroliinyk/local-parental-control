@@ -48,9 +48,10 @@ directory must be root-owned and must not be writable by group or other users.
 Configured executables must resolve to ELF, root-owned executable files
 that are not writable by group or other users.
 
-For every controlled user, set `daily_device_minutes` and an allowed local-time
-window with `allowed_from` and `allowed_until` in `HH:MM` format. The end time
-is exclusive. `continuous_use_minutes` and `break_minutes` configure mandatory
+For every controlled user, set `daily_device_minutes` and either `all_day: true`
+or an allowed local-time window with `allowed_from` and `allowed_until` in
+`HH:MM` format. All-day mode and clock-window fields are mutually exclusive.
+The window end time is exclusive. `continuous_use_minutes` and `break_minutes` configure mandatory
 breaks and default to 60 and 10 minutes when omitted. Device and application
 usage is counted only while the user's graphical session is active and
 unlocked. Locking the screen pauses usage; unlocking it resumes the saved

@@ -33,6 +33,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
+- Added explicit per-user all-day schedules without weakening daily limits or mandatory breaks.
+
 - Device and application usage now pauses while the controlled user's graphical session is locked or inactive, resumes after unlock, and excludes time while the computer or daemon is stopped.
 
 - Application discovery now prints only executable paths that can be copied directly into configuration, resolving Snap launchers to real package ELF files.

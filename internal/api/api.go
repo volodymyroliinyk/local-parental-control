@@ -23,6 +23,7 @@ type UserStatus struct {
 	Name                   string              `json:"name"`
 	DeviceUsedSeconds      int64               `json:"device_used_seconds"`
 	DeviceLimitSeconds     int64               `json:"device_limit_seconds"`
+	AllDay                 bool                `json:"all_day"`
 	AllowedFrom            string              `json:"allowed_from"`
 	AllowedUntil           string              `json:"allowed_until"`
 	DeviceBlocked          bool                `json:"device_blocked"`

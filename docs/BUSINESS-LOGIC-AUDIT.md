@@ -205,8 +205,13 @@ Recommended change: support an explicit all-day mode. Prefer an unambiguous
 field or omitted schedule over assigning surprising meaning to equal endpoints.
 Keep overnight-window support as a separate design decision.
 
-Regression tests should cover the final minute, local midnight, DST dates, and
-status rendering.
+Resolution: **Implemented.** A user may select explicit `all_day: true` without
+clock-window fields. The daemon treats every second of the local day as
+schedule-eligible, while daily limits and breaks continue to apply. Validation
+rejects a configuration that combines all-day mode with either clock boundary.
+
+Regression tests cover the final minute, local midnight, DST dates, and status
+rendering.
 
 ### BL-06 — Access enforcement is coupled to process discovery
 
