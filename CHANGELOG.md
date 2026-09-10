@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-10
+
 ### Added
 
 - Add per-user DNS domain blocking with subdomain matching and transactional reloads.
