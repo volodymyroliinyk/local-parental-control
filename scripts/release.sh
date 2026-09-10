@@ -3,7 +3,6 @@ set -Eeuo pipefail
 
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 remote=origin
-source_branch=develop
 release_branch=main
 assume_yes=false
 draft=false
@@ -32,7 +31,7 @@ The release command:
   3. moves Unreleased changelog entries under the release version;
   4. creates a release commit and annotated vVERSION tag;
   5. builds static Linux binaries, a tar archive, and a Debian package;
-  6. pushes develop, main, and the tag atomically;
+  6. pushes main and the tag atomically;
   7. creates a GitHub Release with artifacts and SHA-256 checksums.
 EOF
 }
@@ -88,12 +87,10 @@ printf 'GitHub CLI: %s\n' "$(gh --version | sed -n '1p')"
 printf 'Target architecture: %s\n' "${architecture}"
 
 step "Checking repository state"
-[[ $(git branch --show-current) = "${source_branch}" ]] || fail "Run releases from the ${source_branch} branch."
+[[ $(git branch --show-current) = "${release_branch}" ]] || fail "Run releases from the ${release_branch} branch."
 [[ -z $(git status --porcelain) ]] || fail "The working tree is not clean. Commit or stash changes first."
 [[ $(git remote get-url "${remote}") == *github.com* ]] || fail "Remote ${remote} is not a GitHub repository."
 git rev-parse --verify HEAD >/dev/null
-git rev-parse --verify "refs/heads/${release_branch}" >/dev/null || fail "Local ${release_branch} branch does not exist."
-git merge-base --is-ancestor "${release_branch}" HEAD || fail "${release_branch} contains commits not present in ${source_branch}."
 if git rev-parse --verify "refs/tags/${tag}" >/dev/null 2>&1; then
   fail "Local tag ${tag} already exists."
 fi
@@ -113,11 +110,8 @@ if [[ ${dry_run} = false ]]; then
   step "Checking GitHub access and remote branches"
   gh auth status >/dev/null || fail "GitHub CLI is not authenticated. Run: gh auth login"
   git fetch --prune "${remote}"
-  git rev-parse --verify "refs/remotes/${remote}/${source_branch}" >/dev/null || fail "Remote branch ${remote}/${source_branch} does not exist."
-  [[ $(git rev-parse HEAD) = $(git rev-parse "${remote}/${source_branch}") ]] || fail "Local ${source_branch} must exactly match ${remote}/${source_branch} before release."
-  if git rev-parse --verify "refs/remotes/${remote}/${release_branch}" >/dev/null 2>&1; then
-    git merge-base --is-ancestor "${remote}/${release_branch}" HEAD || fail "Remote ${release_branch} cannot be fast-forwarded to ${source_branch}."
-  fi
+  git rev-parse --verify "refs/remotes/${remote}/${release_branch}" >/dev/null || fail "Remote branch ${remote}/${release_branch} does not exist."
+  [[ $(git rev-parse HEAD) = $(git rev-parse "${remote}/${release_branch}") ]] || fail "Local ${release_branch} must exactly match ${remote}/${release_branch} before release."
   if git ls-remote --exit-code --tags "${remote}" "refs/tags/${tag}" >/dev/null 2>&1; then
     fail "Remote tag ${tag} already exists."
   fi
@@ -141,7 +135,6 @@ fi
 printf '\nRelease plan:\n'
 printf '  Version:          %s\n' "${version}"
 printf '  Tag:              %s\n' "${tag}"
-printf '  Source branch:    %s\n' "${source_branch}"
 printf '  Release branch:   %s\n' "${release_branch}"
 printf '  GitHub mode:      %s\n' "$([[ ${draft} = true ]] && echo draft || echo published)"
 printf '  Debian package:   dist/%s\n' "${deb_name}"
@@ -174,12 +167,11 @@ awk -v version="${version}" '
 ' CHANGELOG.md >"${notes_file}"
 [[ -s ${notes_file} ]] || fail "Could not extract release notes from CHANGELOG.md."
 
-step "Creating tag and updating local main branch"
+step "Creating tag"
 git tag -a "${tag}" -m "Local Parental Control ${tag}"
-git branch -f "${release_branch}" HEAD
 
-step "Pushing branches and tag atomically"
-git push --atomic "${remote}" "${source_branch}" "${release_branch}" "${tag}"
+step "Pushing branch and tag atomically"
+git push --atomic "${remote}" "${release_branch}" "${tag}"
 
 step "Creating GitHub Release"
 gh_args=(release create "${tag}" "dist/${deb_name}" "dist/${archive_name}" "dist/${checksums_name}" --title "Local Parental Control ${tag}" --notes-file "${notes_file}" --verify-tag)

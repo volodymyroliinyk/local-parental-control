@@ -263,7 +263,7 @@ When preparing a release, move the `Unreleased` entries under a version and date
 ```
 
 The release script verifies the repository, runs tests, builds release artifacts,
-updates the changelog, updates `develop` and `main`, creates a version tag, and
+updates the changelog on `main`, creates a version tag, and
 publishes a GitHub Release through the GitHub CLI. Run a dry check first:
 
 ```bash

@@ -99,7 +99,7 @@ Add observable changes to the Unreleased changelog before committing:
 ./scripts/update-changelog.sh add security "Describe the security change"
 ```
 
-Normal work is committed to `develop`. Do not commit `bin/`, `dist/`, local
+Normal work is committed to `develop` and merged into `main` before a release. Do not commit `bin/`, `dist/`, local
 task files, credentials, or test data containing personal information.
 
 ## Releases
